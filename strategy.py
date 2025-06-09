@@ -35,6 +35,13 @@ from HantuStock import HantuStock
 
 ht = HantuStock(api_key=api_key, secret_key=secret_key, account_id=account_id)
 
+# 슬랙 설정
+SLACK_API_TOKEN = "SLACK_TOKEN_REMOVED"
+HANLYANG_CHANNEL_ID = "C090JHC30CU"
+
+# 슬랙 활성화
+ht.activate_slack(SLACK_API_TOKEN)
+
 # 기술적 분석 전략 데이터 로드
 try:
     with open('technical_strategy_data.json', 'r') as f:
@@ -535,9 +542,21 @@ while True:
         print(f"📊 현재 보유: {len(holdings)}개, 매도 예정: {len(ticker_to_sell)}개")
         
         # === 매도 실행 ===
+        sold_tickers = []
         for ticker in ticker_to_sell:
             print(f"📤 {ticker} 매도 (보유기간: {strategy_data['holding_period'][ticker]}일)")
-            ht.ask(ticker, 'market', holdings[ticker], 'STOCK')
+            order_id, quantity = ht.ask(ticker, 'market', holdings[ticker], 'STOCK')
+            
+            if order_id:
+                sold_tickers.append(ticker)
+                # 슬랙 알림: 매도 체결
+                sell_message = f"📤 **매도 체결**\n종목: {ticker}\n수량: {quantity}주\n보유기간: {strategy_data['holding_period'][ticker]}일"
+                try:
+                    ht.post_message(sell_message, HANLYANG_CHANNEL_ID)
+                    print(f"✅ {ticker} 매도 슬랙 알림 전송")
+                except Exception as e:
+                    print(f"❌ {ticker} 매도 슬랙 알림 실패: {e}")
+            
             strategy_data['holding_period'][ticker] = 0
 
         # === 기술적 분석 강화 매수 실행 ===
@@ -552,19 +571,58 @@ while True:
         
         print(f"📥 최종 매수 대상: {len(final_buy_tickers)}개")
         
+        # === 슬랙 알림: 최종 선정 종목 ===
+        if final_buy_tickers:
+            selection_message = f"🎯 **AI 종목 선정 완료!**\n"
+            selection_message += f"📊 분석 완료: {len(entry_tickers)}개 → AI 선정: {len(final_entry_tickers)}개\n"
+            selection_message += f"📥 매수 예정: {len(final_buy_tickers)}개\n\n"
+            selection_message += "**선정 종목:**\n"
+            for i, ticker in enumerate(final_buy_tickers, 1):
+                selection_message += f"{i}. {ticker}\n"
+            
+            try:
+                ht.post_message(selection_message, HANLYANG_CHANNEL_ID)
+                print("✅ 슬랙 종목 선정 알림 전송 완료")
+            except Exception as e:
+                print(f"❌ 슬랙 알림 전송 실패: {e}")
+        
         # 선정한 종목 매수
+        bought_tickers = []
         for ticker in final_buy_tickers:
             print(f"📥 {ticker} AI 추천 매수")
-            ht.bid(ticker, 'market', 1, 'STOCK')
+            order_id, quantity = ht.bid(ticker, 'market', 1, 'STOCK')
+            
+            if order_id:
+                bought_tickers.append(ticker)
+                # 슬랙 알림: 매수 체결
+                buy_message = f"📥 **매수 체결**\n종목: {ticker}\n수량: {quantity}주\n선정 방식: AI 추천"
+                try:
+                    ht.post_message(buy_message, HANLYANG_CHANNEL_ID)
+                    print(f"✅ {ticker} 매수 슬랙 알림 전송")
+                except Exception as e:
+                    print(f"❌ {ticker} 매수 슬랙 알림 실패: {e}")
+        
+        # === 슬랙 알림: 전략 실행 완료 요약 ===
+        summary_message = f"🏁 **전략 실행 완료!**\n"
+        summary_message += f"📤 매도: {len(sold_tickers)}개\n"
+        summary_message += f"📥 매수: {len(bought_tickers)}개\n"
+        summary_message += f"📊 현재 보유: {len(holdings) - len(sold_tickers) + len(bought_tickers)}개\n"
+        summary_message += f"⏰ 실행 시간: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        
+        try:
+            ht.post_message(summary_message, HANLYANG_CHANNEL_ID)
+            print("✅ 슬랙 전략 완료 요약 알림 전송")
+        except Exception as e:
+            print(f"❌ 슬랙 요약 알림 실패: {e}")
 
         # 성과 로깅
         strategy_data['performance_log'].append({
             'timestamp': datetime.now().isoformat(),
-            'sold_count': len(ticker_to_sell),
+            'sold_count': len(sold_tickers),
             'technical_candidates': len(entry_tickers),
             'ai_selected': len(final_entry_tickers),
-            'bought_count': len(final_buy_tickers),
-            'total_holdings': len(holdings) - len(ticker_to_sell) + len(final_buy_tickers),
+            'bought_count': len(bought_tickers),
+            'total_holdings': len(holdings) - len(sold_tickers) + len(bought_tickers),
             'enhanced_analysis_enabled': strategy_data['enhanced_analysis_enabled']
         })
 

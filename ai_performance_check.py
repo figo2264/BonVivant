@@ -17,6 +17,10 @@ def load_config():
         config = yaml.load(f, Loader=yaml.FullLoader)
     return config
 
+# 슬랙 설정
+SLACK_API_TOKEN = "SLACK_TOKEN_REMOVED"
+HANLYANG_CHANNEL_ID = "C090JHC30CU"
+
 def analyze_ai_performance():
     """AI 예측 성능 분석"""
     try:
@@ -32,6 +36,9 @@ def analyze_ai_performance():
         secret_key=config['hantu']['secret_key'],
         account_id=config['hantu']['account_id']
     )
+    
+    # 슬랙 활성화
+    ht.activate_slack(SLACK_API_TOKEN)
     
     print("📊 AI 전략 성능 분석 시작...")
     print("=" * 60)
@@ -153,7 +160,16 @@ def analyze_ai_performance():
     print("  🔹 정기적으로 AI 예측 정확도를 모니터링하고 전략을 조정하세요.")
     print("  🔹 시장 변동성이 높을 때는 리스크 관리를 강화하세요.")
     
-    return strategy_data
+    # 분석 결과 반환
+    return {
+        'strategy_data': strategy_data,
+        'ai_predictions_count': len(ai_predictions),
+        'current_holdings_count': len([k for k, v in holding_period.items() if v > 0]),
+        'performance_logs_count': len(performance_log),
+        'portfolio_value_estimate': total_value_estimate if 'total_value_estimate' in locals() else 0,
+        'buy_signals': buy_signals if 'buy_signals' in locals() else 0,
+        'sell_signals': sell_signals if 'sell_signals' in locals() else 0
+    }
 
 def generate_weekly_report():
     """주간 리포트 생성"""
@@ -178,11 +194,17 @@ def generate_weekly_report():
 def slack_notification(ht, message):
     """슬랙 알림 전송 (설정되어 있을 경우)"""
     try:
-        # 슬랙 설정이 있다면 알림 전송
-        ht.post_message(message)
-        print("📱 슬랙 알림 전송 완료")
-    except:
-        print("📱 슬랙 알림 설정 없음")
+        # 슬랙 알림 전송
+        response = ht.post_message(message, HANLYANG_CHANNEL_ID)
+        if response:
+            print("📱 슬랙 알림 전송 완료")
+            return True
+        else:
+            print("📱 슬랙 알림 전송 실패")
+            return False
+    except Exception as e:
+        print(f"📱 슬랙 알림 오류: {e}")
+        return False
 
 if __name__ == "__main__":
     print("🤖 AI 전략 주간 성능 체크 시작")
@@ -190,7 +212,8 @@ if __name__ == "__main__":
     
     try:
         # 성능 분석 실행
-        generate_weekly_report()
+        analysis_result = analyze_ai_performance()
+        weekly_report = generate_weekly_report()
         
         # 슬랙 알림 (옵션)
         try:
@@ -201,7 +224,27 @@ if __name__ == "__main__":
                 account_id=config['hantu']['account_id']
             )
             
-            message = f"📊 AI 전략 주간 리포트\n실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n상세 내용은 서버 로그를 확인하세요."
+            # 슬랙 활성화
+            ht.activate_slack(SLACK_API_TOKEN)
+            
+            # 성능 요약 메시지 생성
+            if analysis_result:
+                message = f"📊 **AI 전략 주간 리포트**\n"
+                message += f"🕐 실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+                message += f"🤖 AI 예측 기록: {analysis_result['ai_predictions_count']}개\n"
+                message += f"💼 현재 보유 종목: {analysis_result['current_holdings_count']}개\n"
+                
+                if analysis_result['portfolio_value_estimate'] > 0:
+                    message += f"💰 포트폴리오 추정가치: {analysis_result['portfolio_value_estimate']:,.0f}원\n"
+                    message += f"📊 신호 분포: 매수 {analysis_result['buy_signals']}개, 매도 {analysis_result['sell_signals']}개\n"
+                
+                message += f"📈 거래 로그: {analysis_result['performance_logs_count']}개\n"
+                message += f"💾 상세 리포트: weekly_ai_report.json"
+            else:
+                message = f"📊 **AI 전략 주간 리포트**\n"
+                message += f"🕐 실행 시간: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+                message += f"⚠️ 분석 데이터 부족으로 기본 체크만 완료"
+            
             slack_notification(ht, message)
             
         except Exception as e:
@@ -221,8 +264,15 @@ if __name__ == "__main__":
                 account_id=config['hantu']['account_id']
             )
             
-            error_message = f"⚠️ AI 전략 주간 체크 오류\n시간: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n오류: {str(e)}"
+            # 슬랙 활성화
+            ht.activate_slack(SLACK_API_TOKEN)
+            
+            error_message = f"⚠️ **AI 전략 주간 체크 오류**\n"
+            error_message += f"🕐 시간: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+            error_message += f"❌ 오류: {str(e)}\n"
+            error_message += f"🔧 확인이 필요합니다."
+            
             slack_notification(ht, error_message)
             
-        except:
-            pass
+        except Exception as slack_error:
+            print(f"슬랙 오류 알림도 실패: {slack_error}")

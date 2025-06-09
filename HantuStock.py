@@ -19,17 +19,20 @@ import os
 
         
 class Slack:
-    def activate_slack(self,slack_key):
+    def activate_slack(self, slack_key):
+        self.client = WebClient(token=slack_key)
         
-        self.client = WebClient(token=os.environ.get(slack_key))
-        self.client.token = slack_key
-
-    def post_message(self,message,channel_id = None):
-        self.client.chat_postMessage(
-            channel=channel_id,
-            text=message,
-            mrkdwn=False
-        )
+    def post_message(self, message, channel_id=None):
+        try:
+            response = self.client.chat_postMessage(
+                channel=channel_id,
+                text=message,
+                mrkdwn=False
+            )
+            return response
+        except SlackApiError as e:
+            print(f"슬랙 메시지 전송 실패: {e.response['error']}")
+            return None
 
 
 class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
@@ -38,8 +41,8 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
         self._api_key = api_key
         self._secret_key = secret_key
         self._account_id = account_id
-        
-        self._base_url = 'https://openapi.koreainvestment.com:9443'
+        ### 실전 Domain : https://openapi.koreainvestment.com:9443 || 모의 Domain : https://openapivts.koreainvestment.com:29443
+        self._base_url = 'https://openapivts.koreainvestment.com:29443'
         self._account_suffix = '01'
 
         self._access_token = self.get_access_token() # 접근토큰 발급, 헤더 생성 등 자주쓰는 기능 함수화
@@ -128,8 +131,19 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
             days_passed += 1
             if data['거래대금'].sum() == 0: continue # 주말일 경우 패스
             else: days_collected += 1
+            # 안전한 컬럼명 매핑
+            column_mapping = {
+                '시가': 'open',
+                '고가': 'high',
+                '저가': 'low',
+                '종가': 'close',
+                '거래량': 'volume',
+                '거래대금': 'trade_amount',
+                '등락률': 'diff',
+                '시가총액': 'market_cap'
+            }
 
-            data.columns = ['open','high','low','close','volume','trade_amount','diff']
+            data = data.rename(columns=column_mapping)
             data.index.name = 'ticker'
 
             data['timestamp'] = iter_date
@@ -166,7 +180,7 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
             return returning_result
 
     def _get_order_result(self,get_account_info = False):
-        headers = self.get_header('TTTC8434R')
+        headers = self.get_header('VTTC8434R')  # 실전 계좌 : TTTC8434R | 모의 계좌 : VTTC8434R
         output1_result = []
         cont = True
         ctx_area_fk100 = ''
@@ -229,7 +243,7 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
             print('ERROR: quantity_scale should be one of CASH, STOCK')
             return None, 0
 
-        headers = self.get_header('TTTC0802U')
+        headers = self.get_header('VTTC0011U')  # 실전 TR ID : (매도) TTTC0011U (매수) TTTC0012U | 모의 TR ID : (매도) VTTC0011U (매수) VTTC0012U
         params = {
                 "CANO":self._account_id,
                 "ACNT_PRDT_CD": self._account_suffix,
@@ -272,7 +286,7 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
             print('ERROR: quantity_scale should be one of CASH, STOCK')
             return None, 0
 
-        headers = self.get_header('TTTC0801U')
+        headers = self.get_header('VTTC0012U')  # 실전 TR ID : (매도) TTTC0011U (매수) TTTC0012U | 모의 TR ID : (매도) VTTC0011U (매수) VTTC0012U
         params = {
                 "CANO":self._account_id,
                 "ACNT_PRDT_CD": self._account_suffix,
