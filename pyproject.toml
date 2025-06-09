@@ -7,12 +7,14 @@ requires-python = ">=3.11"
 dependencies = [
     "finance-datareader>=0.9.96",
     "jupyter>=1.1.1",
+    "lightgbm>=4.6.0",
     "numpy>=2.3.0",
     "pandas>=2.3.0",
     "pykrx>=1.0.51",
     "python-dateutil>=2.9.0.post0",
     "pyyaml>=6.0.2",
     "requests>=2.32.3",
+    "scikit-learn>=1.7.0",
     "slack-sdk>=3.35.0",
     "ta>=0.11.0",
 ]
