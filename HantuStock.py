@@ -243,7 +243,7 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
             print('ERROR: quantity_scale should be one of CASH, STOCK')
             return None, 0
 
-        headers = self.get_header('VTTC0011U')  # 실전 TR ID : (매도) TTTC0011U (매수) TTTC0012U | 모의 TR ID : (매도) VTTC0011U (매수) VTTC0012U
+        headers = self.get_header('VTTC0012U')  # 실전 TR ID : (매도) TTTC0011U (매수) TTTC0012U | 모의 TR ID : (매도) VTTC0011U (매수) VTTC0012U
         params = {
                 "CANO":self._account_id,
                 "ACNT_PRDT_CD": self._account_suffix,
@@ -286,7 +286,7 @@ class HantuStock(Slack): # HantuStock 클래스로 패키지명 설정
             print('ERROR: quantity_scale should be one of CASH, STOCK')
             return None, 0
 
-        headers = self.get_header('VTTC0012U')  # 실전 TR ID : (매도) TTTC0011U (매수) TTTC0012U | 모의 TR ID : (매도) VTTC0011U (매수) VTTC0012U
+        headers = self.get_header('VTTC0011U')  # 실전 TR ID : (매도) TTTC0011U (매수) TTTC0012U | 모의 TR ID : (매도) VTTC0011U (매수) VTTC0012U
         params = {
                 "CANO":self._account_id,
                 "ACNT_PRDT_CD": self._account_suffix,

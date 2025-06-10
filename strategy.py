@@ -494,70 +494,122 @@ def enhanced_stock_selection():
     print(f"🎯 기술적 분석 최종 선정: {len(selected_tickers)}개 종목")
     return selected_tickers
 
-# 현재 보유중인 종목 조회
-holdings = ht.get_holding_stock()
-
-# holding_period를 하루씩 높여줌
-for ticker in holdings:
-    if ticker not in strategy_data['holding_period']:
-        strategy_data['holding_period'][ticker] = 1
-    else:
-        strategy_data['holding_period'][ticker] += 1
-
-# 기술적 분석 강화 매도 전략
-ticker_to_sell = []
-for ticker in holdings:
-    holding_days = strategy_data['holding_period'][ticker]
-    should_sell = False
-    
-    # 기본 3일 룰
-    if holding_days >= 3:
-        should_sell = True
-        
-        # 기술적 홀드 시그널 체크 (3일차에만)
-        if holding_days == 3 and strategy_data['enhanced_analysis_enabled']:
-            hold_signal = get_technical_hold_signal(ticker)
-            
-            if hold_signal >= 0.75:
-                should_sell = False
-                print(f"📊 {ticker}: 기술적 분석 강홀드 신호로 1일 연장 (신호강도: {hold_signal:.3f})")
-            elif hold_signal <= 0.25:
-                print(f"⚠️ {ticker}: 기술적 분석 매도 신호 (신호강도: {hold_signal:.3f})")
-        
-    # 안전장치: 5일 이상은 무조건 매도
-    if holding_days >= 5:
-        should_sell = True
-        print(f"⏰ {ticker}: 5일 안전룰 적용")
-    
-    if should_sell:
-        ticker_to_sell.append(ticker)
-
 # 전략의 시간을 체크할 while문
 while True:
     current_time = datetime.now()
 
-    # 15:20에 전략 실행
+    # 15:00에 전략 실행 (20분 여유시간으로 매우 안전!)
     if current_time.hour == 15 and current_time.minute == 20:
+    # if True:
         print("🚀 AI 강화 전략 실행 시작!")
-        print(f"📊 현재 보유: {len(holdings)}개, 매도 예정: {len(ticker_to_sell)}개")
+
+        # === 현재 보유중인 종목 조회 ===
+        holdings = ht.get_holding_stock()
+        print(f"📊 현재 보유: {len(holdings)}개")
+
+        # === holding_period를 하루씩 높여줌 ===
+        for ticker in holdings:
+            if ticker not in strategy_data['holding_period']:
+                strategy_data['holding_period'][ticker] = 1
+            else:
+                strategy_data['holding_period'][ticker] += 1
+
+        # === 기술적 분석 강화 매도 전략 ===
+        ticker_to_sell = []
+        for ticker in holdings:
+            holding_days = strategy_data['holding_period'][ticker]
+            should_sell = False
+
+            # 기본 3일 룰
+            if holding_days >= 3:
+                should_sell = True
+
+                # 기술적 홀드 시그널 체크 (3일차에만)
+                if holding_days == 3 and strategy_data['enhanced_analysis_enabled']:
+                    hold_signal = get_technical_hold_signal(ticker)
+
+                    if hold_signal >= 0.75:
+                        should_sell = False
+                        print(f"📊 {ticker}: 기술적 분석 강홀드 신호로 1일 연장 (신호강도: {hold_signal:.3f})")
+                    elif hold_signal <= 0.25:
+                        print(f"⚠️ {ticker}: 기술적 분석 매도 신호 (신호강도: {hold_signal:.3f})")
+
+            # 안전장치: 5일 이상은 무조건 매도
+            if holding_days >= 5:
+                should_sell = True
+                print(f"⏰ {ticker}: 5일 안전룰 적용")
+
+            if should_sell:
+                ticker_to_sell.append(ticker)
+
+        print(f"📤 매도 예정: {len(ticker_to_sell)}개")
         
-        # === 매도 실행 ===
+        # === 수익률 추적 매도 실행 ===
         sold_tickers = []
+        total_sell_profit = 0
+
         for ticker in ticker_to_sell:
-            print(f"📤 {ticker} 매도 (보유기간: {strategy_data['holding_period'][ticker]}일)")
-            order_id, quantity = ht.ask(ticker, 'market', holdings[ticker], 'STOCK')
-            
-            if order_id:
-                sold_tickers.append(ticker)
-                # 슬랙 알림: 매도 체결
-                sell_message = f"📤 **매도 체결**\n종목: {ticker}\n수량: {quantity}주\n보유기간: {strategy_data['holding_period'][ticker]}일"
+            holding_days = strategy_data['holding_period'][ticker]
+
+            try:
+                # 매도 전 수익률 계산
+                purchase_info = strategy_data.get('purchase_info', {}).get(ticker, {})
                 try:
-                    ht.post_message(sell_message, HANLYANG_CHANNEL_ID)
-                    print(f"✅ {ticker} 매도 슬랙 알림 전송")
-                except Exception as e:
-                    print(f"❌ {ticker} 매도 슬랙 알림 실패: {e}")
-            
-            strategy_data['holding_period'][ticker] = 0
+                    current_data = ht.get_past_data(ticker, n=1)
+                    current_price = current_data['close']
+                except:
+                    current_price = None
+
+                profit_info = ""
+                if purchase_info and current_price:
+                    buy_price = purchase_info.get('buy_price', 0)
+                    quantity = holdings[ticker]
+
+                    if buy_price > 0:
+                        sell_value = quantity * current_price
+                        buy_value = quantity * buy_price
+                        profit = sell_value - buy_value
+                        profit_rate = (profit / buy_value) * 100
+
+                        total_sell_profit += profit
+                        profit_info = f" | 수익률: {profit_rate:+.2f}% ({profit:+,}원)"
+
+                print(f"📤 {ticker} 매도 (보유기간: {holding_days}일{profit_info})")
+                order_id, quantity = ht.ask(ticker, 'market', holdings[ticker], 'STOCK')
+
+                if order_id:
+                    sold_tickers.append(ticker)
+
+                    # 슬랙 알림: 매도 체결 (수익률 포함)
+                    sell_message = f"📤 **매도 체결**\n"
+                    sell_message += f"종목: {ticker}\n"
+                    sell_message += f"수량: {quantity}주\n"
+                    sell_message += f"보유기간: {holding_days}일"
+
+                    if profit_info:
+                        sell_message += f"\n수익률: {profit_rate:+.2f}%"
+                        sell_message += f"\n손익: {profit:+,}원"
+                        if purchase_info:
+                            confidence = purchase_info.get('confidence_level', 'Unknown')
+                            sell_message += f"\n신뢰도: {confidence}"
+
+                    try:
+                        ht.post_message(sell_message, HANLYANG_CHANNEL_ID)
+                        print(f"✅ {ticker} 매도 슬랙 알림 전송")
+                    except Exception as e:
+                        print(f"❌ {ticker} 매도 슬랙 알림 실패: {e}")
+
+                    # 매도 완료 후 구매 정보 정리
+                    if ticker in strategy_data.get('purchase_info', {}):
+                        del strategy_data['purchase_info'][ticker]
+
+                strategy_data['holding_period'][ticker] = 0
+
+            except Exception as e:
+                print(f"❌ {ticker} 매도 처리 오류: {e}")
+
+        if total_sell_profit != 0:
+            print(f"💰 총 매도 손익: {total_sell_profit:+,}원")
 
         # === 기술적 분석 강화 매수 실행 ===
         entry_tickers = enhanced_stock_selection()
@@ -586,28 +638,169 @@ while True:
             except Exception as e:
                 print(f"❌ 슬랙 알림 전송 실패: {e}")
         
-        # 선정한 종목 매수
+        # === AI 신뢰도 기반 차등 투자 매수 ===
         bought_tickers = []
-        for ticker in final_buy_tickers:
-            print(f"📥 {ticker} AI 추천 매수")
-            order_id, quantity = ht.bid(ticker, 'market', 1, 'STOCK')
-            
-            if order_id:
-                bought_tickers.append(ticker)
-                # 슬랙 알림: 매수 체결
-                buy_message = f"📥 **매수 체결**\n종목: {ticker}\n수량: {quantity}주\n선정 방식: AI 추천"
+        total_invested = 0
+
+        # 현재 계좌 잔고 조회
+        current_balance = 0  # 기본값 초기화
+        balance_check_success = False
+        
+        try:
+            current_balance = ht.get_holding_cash()
+            balance_check_success = True
+            print(f"💰 현재 계좌 잔고: {current_balance:,}원")
+        except Exception as e:
+            print(f"❌ 계좌 잔고 조회 실패: {e}")
+            print("⚠️ 잔고 확인 불가로 매수 전략을 건너뜁니다.")
+
+            # 슬랙 알림: 잔고 조회 실패
+            error_message = f"❌ **계좌 잔고 조회 실패**\n"
+            error_message += f"오류: {str(e)}\n"
+            error_message += f"매수 전략을 건너뛰고 매도만 실행합니다."
+
+            try:
+                ht.post_message(error_message, HANLYANG_CHANNEL_ID)
+            except:
+                pass
+
+        # 잔고 조회가 실패한 경우 매수를 건너뜀
+        if not balance_check_success:
+            print("⚠️ 계좌 잔고 조회 실패로 매수를 건너뜁니다.")
+        else:
+            for ticker in final_buy_tickers:
                 try:
-                    ht.post_message(buy_message, HANLYANG_CHANNEL_ID)
-                    print(f"✅ {ticker} 매수 슬랙 알림 전송")
+                    # AI 점수 가져오기
+                    ai_score = strategy_data.get('ai_predictions', {}).get(ticker, {}).get('score', 0.5)
+
+                    # AI 신뢰도 기반 투자 금액 계산
+                    if ai_score >= 0.8:
+                        investment_amount = 400_000    # 고신뢰: 40만원
+                        confidence_level = "고신뢰"
+                    elif ai_score >= 0.7:
+                        investment_amount = 300_000    # 중신뢰: 30만원
+                        confidence_level = "중신뢰"
+                    elif ai_score >= 0.6:
+                        investment_amount = 200_000    # 저신뢰: 20만원
+                        confidence_level = "저신뢰"
+                    else:
+                        investment_amount = 100_000      # 매우 저신뢰: 10만원
+                        confidence_level = "매우저신뢰"
+
+                    # 투자 가능 금액 계산 (400만원 안전자금 제외)
+                    available_balance = current_balance - total_invested - 4_000_000
+
+                    print(f"🔍 디버그 정보:")
+                    print(f"   current_balance: {current_balance:,}원")
+                    print(f"   total_invested: {total_invested:,}원")
+                    print(f"   available_balance: {available_balance:,}원")
+                    print(f"   investment_amount: {investment_amount:,}원")
+
+                    if available_balance < investment_amount:
+                        investment_amount = max(100_000, available_balance)  # 최소 5만원
+                        if investment_amount <= 0:
+                            print(f"⚠️ {ticker}: 투자 가능 금액 부족")
+                            continue
+
+                    # 현재가 조회
+                    try:
+                        current_data = ht.get_past_data(ticker, n=1)
+                        current_price = current_data['close']
+                    except:
+                        current_price = None
+
+                    if not current_price or current_price <= 0:
+                        print(f"❌ {ticker}: 현재가 조회 실패")
+                        continue
+
+                    # 매수 수량 계산 (소수점 버림)
+                    quantity_to_buy = int(investment_amount // current_price)
+
+                    if quantity_to_buy <= 0:
+                        print(f"⚠️ {ticker}: 투자금액 부족 (필요: {current_price:,}원)")
+                        continue
+
+                    actual_investment = quantity_to_buy * current_price
+
+                    print(f"📥 {ticker} AI 신뢰도 기반 매수:")
+                    print(f"   AI점수: {ai_score:.3f} ({confidence_level})")
+                    print(f"   투자금액: {actual_investment:,}원")
+                    print(f"   수량: {quantity_to_buy:,}주")
+                    print(f"   단가: {current_price:,}원")
+
+                    # 매수 주문 실행
+                    order_id, actual_quantity = ht.bid(ticker, 'market', quantity_to_buy, 'STOCK')
+
+                    if order_id:
+                        bought_tickers.append({
+                            'ticker': ticker,
+                            'quantity': actual_quantity,
+                            'investment': actual_investment,
+                            'ai_score': ai_score,
+                            'confidence_level': confidence_level
+                        })
+                        total_invested += actual_investment
+
+                        # 매수 정보 저장 (수익률 계산용)
+                        strategy_data.setdefault('purchase_info', {})[ticker] = {
+                            'buy_price': current_price,
+                            'quantity': actual_quantity,
+                            'investment': actual_investment,
+                            'buy_date': datetime.now().isoformat(),
+                            'ai_score': ai_score,
+                            'confidence_level': confidence_level
+                        }
+
+                        # 슬랙 알림: 매수 체결
+                        buy_message = f"📥 **매수 체결**\n"
+                        buy_message += f"종목: {ticker}\n"
+                        buy_message += f"수량: {actual_quantity:,}주\n"
+                        buy_message += f"투자금액: {actual_investment:,}원\n"
+                        buy_message += f"AI점수: {ai_score:.3f} ({confidence_level})\n"
+                        buy_message += f"단가: {current_price:,}원"
+
+                        try:
+                            ht.post_message(buy_message, HANLYANG_CHANNEL_ID)
+                            print(f"✅ {ticker} 매수 완료 및 슬랙 알림 전송")
+                        except Exception as e:
+                            print(f"❌ {ticker} 슬랙 알림 실패: {e}")
+                    else:
+                        print(f"❌ {ticker} 매수 주문 실패")
+
                 except Exception as e:
-                    print(f"❌ {ticker} 매수 슬랙 알림 실패: {e}")
+                    print(f"❌ {ticker} 매수 처리 오류: {e}")
+
+        print(f"\n💼 AI 신뢰도 기반 매수 완료 :")
+        print(f"   매수 종목 수: {len(bought_tickers)}개")
+        print(f"   총 투자금액: {total_invested:,}원")
+        if balance_check_success:
+            print(f"   남은 현금: {current_balance - total_invested:,}원")
         
         # === 슬랙 알림: 전략 실행 완료 요약 ===
-        summary_message = f"🏁 **전략 실행 완료!**\n"
-        summary_message += f"📤 매도: {len(sold_tickers)}개\n"
-        summary_message += f"📥 매수: {len(bought_tickers)}개\n"
-        summary_message += f"📊 현재 보유: {len(holdings) - len(sold_tickers) + len(bought_tickers)}개\n"
-        summary_message += f"⏰ 실행 시간: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        summary_message = f"🏁 **AI 신뢰도 기반 전략 실행 완료!**\n"
+        summary_message += f"📤 매도: {len(sold_tickers)}개"
+        if total_sell_profit != 0:
+            summary_message += f" (손익: {total_sell_profit:+,}원)"
+        summary_message += f"\n📥 매수: {len(bought_tickers)}개"
+        if total_invested > 0:
+            summary_message += f" (투자: {total_invested:,}원)"
+        summary_message += f"\n📊 현재 보유: {len(holdings) - len(sold_tickers) + len(bought_tickers)}개\n"
+
+        # AI 신뢰도별 투자 현황
+        if bought_tickers:
+            summary_message += "\n**신뢰도별 투자 :**\n"
+            confidence_stats = {}
+            for stock in bought_tickers:
+                level = stock['confidence_level']
+                if level not in confidence_stats:
+                    confidence_stats[level] = {'count': 0, 'amount': 0}
+                confidence_stats[level]['count'] += 1
+                confidence_stats[level]['amount'] += stock['investment']
+
+            for level, stats in confidence_stats.items():
+                summary_message += f"• {level}: {stats['count']}개 ({stats['amount']:,}원)\n"
+
+        summary_message += f"\n⏰ 실행 시간: {current_time.strftime('%Y-%m-%d %H:%M:%S')}"
         
         try:
             ht.post_message(summary_message, HANLYANG_CHANNEL_ID)
@@ -615,20 +808,43 @@ while True:
         except Exception as e:
             print(f"❌ 슬랙 요약 알림 실패: {e}")
 
-        # 성과 로깅
+        # 성과 로깅 (AI 신뢰도 정보 추가)
         strategy_data['performance_log'].append({
             'timestamp': datetime.now().isoformat(),
             'sold_count': len(sold_tickers),
+            'sell_profit': total_sell_profit,
             'technical_candidates': len(entry_tickers),
             'ai_selected': len(final_entry_tickers),
             'bought_count': len(bought_tickers),
+            'total_invested': total_invested,
             'total_holdings': len(holdings) - len(sold_tickers) + len(bought_tickers),
-            'enhanced_analysis_enabled': strategy_data['enhanced_analysis_enabled']
+            'enhanced_analysis_enabled': strategy_data['enhanced_analysis_enabled'],
+            'ai_confidence_strategy': True,
+            'investment_scale': 'half'  # 절반 투자 표시
         })
 
-        # 전략 데이터 저장
+        # 전략 데이터 저장 (JSON 직렬화 가능한 형태로 변환)
+        def convert_to_serializable(obj):
+            """numpy 타입을 JSON 직렬화 가능한 타입으로 변환"""
+            if isinstance(obj, dict):
+                return {key: convert_to_serializable(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_to_serializable(item) for item in obj]
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.ndarray):
+                return obj.tolist()
+            elif pd.isna(obj):
+                return None
+            else:
+                return obj
+        
+        serializable_data = convert_to_serializable(strategy_data)
+        
         with open('technical_strategy_data.json', 'w') as f:
-            json.dump(strategy_data, f, indent=2, ensure_ascii=False)
+            json.dump(serializable_data, f, indent=2, ensure_ascii=False)
         
         print("💾 AI 강화 전략 데이터 저장 완료")
         print("✅ AI 강화 전략 실행 완료!")
