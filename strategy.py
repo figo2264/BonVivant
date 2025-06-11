@@ -563,7 +563,11 @@ while True:
                 except:
                     current_price = None
 
+                # 변수 초기화
                 profit_info = ""
+                profit = 0
+                profit_rate = 0.0
+                
                 if purchase_info and current_price:
                     buy_price = purchase_info.get('buy_price', 0)
                     quantity = holdings[ticker]
@@ -668,8 +672,8 @@ while True:
         break
 
     # 15시 20분~22분 - 매수 전용 실행 (여유시간 2분)
-    # elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
-    elif True:  # 테스트용
+    elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
+    # elif True:  # 테스트용
         print("🚀 오후 매수 전략 실행 시작!")
 
         # === 현재 보유중인 종목 조회 (매수 전) ===
@@ -740,20 +744,20 @@ while True:
 
                     # AI 신뢰도 기반 투자 금액 계산
                     if ai_score >= 0.8:
-                        investment_amount = 500_000    # 고신뢰: 50만원
+                        investment_amount = 700_000    # 고신뢰: 70만원
                         confidence_level = "고신뢰"
                     elif ai_score >= 0.7:
-                        investment_amount = 400_000    # 중신뢰: 40만원
+                        investment_amount = 600_000    # 중신뢰: 60만원
                         confidence_level = "중신뢰"
                     elif ai_score >= 0.6:
-                        investment_amount = 300_000    # 저신뢰: 30만원
+                        investment_amount = 500_000    # 저신뢰: 50만원
                         confidence_level = "저신뢰"
                     else:
-                        investment_amount = 200_000      # 매우 저신뢰: 20만원
+                        investment_amount = 400_000      # 매우 저신뢰: 40만원
                         confidence_level = "매우저신뢰"
 
-                    # 투자 가능 금액 계산 (400만원 안전자금 제외)
-                    available_balance = current_balance - total_invested - 4_000_000
+                    # 투자 가능 금액 계산 (200만원 안전자금 제외)
+                    available_balance = current_balance - total_invested - 2_000_000
 
                     # 투자 가능 금액이 0 이하면 바로 건너뛰기
                     if available_balance <= 0:
@@ -762,8 +766,8 @@ while True:
                     
                     # 투자 가능 금액이 계획된 금액보다 작으면 조정
                     if available_balance < investment_amount:
-                        # 최소 투자금액(10만원) 확인
-                        if available_balance < 100_000:
+                        # 최소 투자금액(30만원) 확인
+                        if available_balance < 300_000:
                             print(f"⚠️ {ticker}: 최소 투자금액 부족 (가능: {available_balance:,}원, 최소: 100,000원)")
                             continue
                         investment_amount = available_balance
