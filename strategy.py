@@ -962,6 +962,15 @@ def load_ai_model():
                 print(f"📅 모델 훈련일: {metadata.get('train_date', 'Unknown')}")
                 print(f"📊 모델 품질: {metadata.get('model_quality_score', 0):.1f}/100")
                 print(f"🎯 테스트 정확도: {metadata.get('test_accuracy', 0):.3f}")
+                print(f"🔢 클래스 수: {metadata.get('class_count', 'Unknown')}")
+                print(f"📐 피처 수: {metadata.get('feature_count', 'Unknown')}")
+                
+                # 모델 타입 확인
+                model_type = metadata.get('model_type', 'Unknown')
+                if 'Binary' in model_type:
+                    print(f"✅ 이진 분류 모델 확인됨")
+                elif 'MultiClass' in model_type:
+                    print(f"⚠️ 다중 클래스 모델 감지됨 - 호환성 문제 가능")
                 
                 # 모델이 너무 오래되었는지 확인 (7일 이상)
                 train_date = metadata.get('train_date')
@@ -1054,38 +1063,28 @@ def get_ai_prediction_score(ticker, model):
             print(f"⚠️ {ticker}: 피처 누락 비율 높음 ({missing_features}/{len(feature_columns)})")
             return 0.2
 
-        # AI 예측 (다중 클래스 확률)
-        prediction_probs = model.predict([features])[0]  # [class0_prob, class1_prob, class2_prob]
+        # AI 예측 (이진 분류)
+        prediction_prob = model.predict([features])[0]  # 수익 확률 (0~1)
         
-        # 수익 클래스(1, 2)의 확률 합계를 신뢰도 점수로 사용
-        profit_probability = prediction_probs[1] + prediction_probs[2]  # 소폭수익 + 큰수익
+        # 예측 확률을 그대로 점수로 사용
+        final_score = float(prediction_prob)
         
-        # 큰 수익(클래스 2)에 가중치 부여
-        weighted_score = prediction_probs[1] * 0.6 + prediction_probs[2] * 1.0
+        # 신뢰도 보정
+        # 극단적인 예측(0.8 이상 또는 0.2 이하)에 보너스
+        if prediction_prob > 0.8 or prediction_prob < 0.2:
+            confidence = abs(prediction_prob - 0.5) * 2  # 0~1 범위
+            final_score = final_score * 0.8 + confidence * 0.2
         
-        # 최종 점수는 가중치 적용된 점수와 단순 수익 확률의 평균
-        final_score = (weighted_score + profit_probability) / 2
+        # 디버깅: 성공적인 예측 로그
+        print(f"🤖 {ticker} AI 예측 성공: 원시 확률={prediction_prob:.3f}, 최종 점수={final_score:.3f}, 피처 누락={missing_features}/{len(feature_columns)}")
         
-        # 추가 신뢰도 검증
-        confidence_bonus = 0
-        
-        # 1. 예측 확신도 (최대 클래스 확률이 높을수록 보너스)
-        max_prob = max(prediction_probs)
-        if max_prob > 0.6:
-            confidence_bonus += 0.1
-        elif max_prob > 0.5:
-            confidence_bonus += 0.05
-            
-        # 2. 큰 수익 클래스 확률이 높으면 추가 보너스
-        if prediction_probs[2] > 0.3:
-            confidence_bonus += 0.1
-            
-        final_score = min(1.0, final_score + confidence_bonus)
-
         return float(final_score)
 
     except Exception as e:
         print(f"❌ AI 예측 오류 ({ticker}): {e}")
+        # 디버깅을 위한 상세 정보
+        import traceback
+        print(f"   상세 에러: {traceback.format_exc()}")
         return 0.2
 
 def ai_enhanced_final_selection(entry_tickers):
@@ -1130,13 +1129,13 @@ def ai_enhanced_final_selection(entry_tickers):
 
     # 신뢰도 기준 현실화: 모델 품질에 따라 동적 조정
     if model_quality_score >= 65:
-        min_score_threshold = 0.55  # 우수한 모델: 0.55 이상
+        min_score_threshold = 0.45  # 우수한 모델: 0.45 이상 (0.55 → 0.45)
         max_selections = 5
     elif model_quality_score >= 50:
-        min_score_threshold = 0.60  # 양호한 모델: 0.60 이상
+        min_score_threshold = 0.50  # 양호한 모델: 0.50 이상 (0.60 → 0.50)
         max_selections = 4
     else:
-        min_score_threshold = 0.65  # 보통 모델: 0.65 이상
+        min_score_threshold = 0.55  # 보통 모델: 0.55 이상 (0.65 → 0.55)
         max_selections = 3
 
     print(f"📏 신뢰도 기준: {min_score_threshold:.2f} 이상 (최대 {max_selections}개)")
