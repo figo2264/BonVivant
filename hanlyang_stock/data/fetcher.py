@@ -221,7 +221,7 @@ class DataFetcher:
     
     def get_market_data_by_date_range(self, end_date: str, n_days_before: int = 20) -> pd.DataFrame:
         """
-        날짜 범위의 시장 데이터 조회 (백테스트 엔진 기능)
+        날짜 범위의 시장 데이터 조회 (백테스트 엔진 기능) - 성능 최적화
         
         Args:
             end_date: 종료 날짜 (YYYY-MM-DD)
@@ -230,10 +230,23 @@ class DataFetcher:
         Returns:
             DataFrame: 날짜 범위의 시장 데이터
         """
+        # 캐시 키 생성
+        cache_key = f"market_data_{end_date}_{n_days_before}"
+        
+        # 간단한 메모리 캐시 (실제로는 Redis 등을 사용할 수 있음)
+        if not hasattr(self, '_cache'):
+            self._cache = {}
+        
+        if cache_key in self._cache:
+            print(f"💾 캐시에서 데이터 로드: {cache_key}")
+            return self._cache[cache_key]
+        
         try:
             if not PYKRX_AVAILABLE:
                 # pykrx가 없으면 HantuStock 시도
-                return self.get_past_data_total(n=n_days_before)
+                result = self.get_past_data_total(n=n_days_before)
+                self._cache[cache_key] = result
+                return result
             
             # 날짜 범위 생성
             end_date_obj = pd.to_datetime(end_date)
@@ -241,27 +254,58 @@ class DataFetcher:
             
             all_data = []
             current_date = start_date_obj
+            collected_days = 0
             
-            while current_date <= end_date_obj:
+            print(f"📊 시장 데이터 수집 중: {start_date_obj.strftime('%Y-%m-%d')} ~ {end_date}")
+            
+            while current_date <= end_date_obj and collected_days < n_days_before:
                 if current_date.weekday() < 5:  # 평일만
                     date_str = current_date.strftime('%Y-%m-%d')
                     daily_data = self.get_market_data_by_date(date_str)
                     
                     if not daily_data.empty:
                         all_data.append(daily_data)
+                        collected_days += 1
                         
                 current_date += timedelta(days=1)
             
             if all_data:
                 result = pd.concat(all_data, ignore_index=True)
                 result['timestamp'] = pd.to_datetime(result['timestamp'])
-                return result.sort_values(['timestamp', 'ticker']).reset_index(drop=True)
+                result = result.sort_values(['timestamp', 'ticker']).reset_index(drop=True)
+                
+                # 캐시에 저장 (최대 100개 캐시)
+                if len(self._cache) > 100:
+                    # 가장 오래된 캐시 삭제
+                    oldest_key = next(iter(self._cache))
+                    del self._cache[oldest_key]
+                
+                self._cache[cache_key] = result
+                print(f"✅ 시장 데이터 수집 완료: {len(result)}건 ({collected_days}일)")
+                return result
             else:
                 return pd.DataFrame()
                 
         except Exception as e:
             print(f"❌ 날짜 범위 시장 데이터 조회 오류: {e}")
             return pd.DataFrame()
+    
+    def clear_cache(self):
+        """캐시 초기화"""
+        if hasattr(self, '_cache'):
+            self._cache.clear()
+            print("💾 데이터 캐시 초기화 완료")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """캐시 통계 정보"""
+        if not hasattr(self, '_cache'):
+            return {'cache_size': 0, 'cache_keys': []}
+        
+        return {
+            'cache_size': len(self._cache),
+            'cache_keys': list(self._cache.keys()),
+            'memory_usage_mb': sum(data.memory_usage(deep=True).sum() for data in self._cache.values()) / 1024 / 1024
+        }
     
     def get_current_price(self, ticker: str) -> Optional[float]:
         """

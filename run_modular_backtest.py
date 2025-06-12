@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+모듈화된 백테스트 엔진 실행 스크립트
+Modularized Backtest Engine Runner
+"""
+
+import sys
+import os
+from datetime import datetime, timedelta
+
+# 프로젝트 루트를 Python 경로에 추가
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from hanlyang_stock.backtest import BacktestEngine
+from hanlyang_stock.config.backtest_settings import get_backtest_config, create_custom_config
+
+
+def run_simple_backtest():
+    """간단한 백테스트 실행"""
+    print("🚀 간단한 백테스트 실행")
+    print("=" * 60)
+    
+    # 기본 설정으로 백테스트 엔진 생성
+    config = get_backtest_config('balanced')
+    engine = BacktestEngine(
+        initial_capital=config.initial_capital,
+        transaction_cost=config.transaction_cost
+    )
+    
+    # 최근 10일간 백테스트 (테스트용)
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=10)
+    
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+    
+    try:
+        # 백테스트 실행
+        results = engine.run_backtest(start_str, end_str, ai_enabled=True)
+        
+        # 결과 저장
+        filename = engine.save_results("simple_modular_backtest.json")
+        
+        print(f"\n✅ 백테스트 완료! 결과 파일: {filename}")
+        return results
+        
+    except Exception as e:
+        print(f"❌ 백테스트 실행 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def run_custom_backtest():
+    """커스텀 설정 백테스트 실행"""
+    print("🛠️ 커스텀 설정 백테스트 실행")
+    print("=" * 60)
+    
+    # 커스텀 설정 생성
+    custom_config = create_custom_config(
+        initial_capital=20_000_000,     # 2000만원으로 증가
+        max_positions=7,                # 7개 종목까지
+        stop_loss_rate=-0.04,          # -4% 손실제한
+        ai_enabled=True,
+        min_ai_confidence=0.70          # 높은 신뢰도만
+    )
+    
+    print("커스텀 설정:")
+    for key, value in custom_config.to_dict().items():
+        print(f"  {key}: {value}")
+    
+    # 백테스트 엔진 생성
+    engine = BacktestEngine(
+        initial_capital=custom_config.initial_capital,
+        transaction_cost=custom_config.transaction_cost
+    )
+    
+    # 1개월간 백테스트
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+    
+    try:
+        # 백테스트 실행
+        results = engine.run_backtest(start_str, end_str, ai_enabled=custom_config.ai_enabled)
+        
+        # 결과 저장
+        filename = engine.save_results("custom_modular_backtest.json")
+        
+        print(f"\n✅ 커스텀 백테스트 완료! 결과 파일: {filename}")
+        return results
+        
+    except Exception as e:
+        print(f"❌ 커스텀 백테스트 실행 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def run_comparison_backtest():
+    """AI vs 비AI 비교 백테스트"""
+    print("🤖 vs 📊 AI와 기술적 분석 비교 백테스트")
+    print("=" * 60)
+    
+    # 기본 설정
+    config = get_backtest_config('balanced')
+    
+    # 테스트 기간
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+    
+    results = {}
+    
+    # 1. AI 활성화 백테스트
+    print("\n🤖 AI 활성화 백테스트 실행...")
+    ai_engine = BacktestEngine(config.initial_capital, config.transaction_cost)
+    
+    try:
+        ai_results = ai_engine.run_backtest(start_str, end_str, ai_enabled=True)
+        ai_filename = ai_engine.save_results("ai_enabled_backtest.json")
+        results['ai_enabled'] = ai_results
+        print(f"✅ AI 백테스트 완료: {ai_filename}")
+    except Exception as e:
+        print(f"❌ AI 백테스트 오류: {e}")
+        results['ai_enabled'] = None
+    
+    # 2. AI 비활성화 백테스트
+    print("\n📊 기술적 분석만 백테스트 실행...")
+    technical_engine = BacktestEngine(config.initial_capital, config.transaction_cost)
+    
+    try:
+        technical_results = technical_engine.run_backtest(start_str, end_str, ai_enabled=False)
+        technical_filename = technical_engine.save_results("technical_only_backtest.json")
+        results['technical_only'] = technical_results
+        print(f"✅ 기술적 분석 백테스트 완료: {technical_filename}")
+    except Exception as e:
+        print(f"❌ 기술적 분석 백테스트 오류: {e}")
+        results['technical_only'] = None
+    
+    # 결과 비교
+    print("\n" + "=" * 60)
+    print("📊 비교 결과")
+    print("=" * 60)
+    
+    if results['ai_enabled'] and results['technical_only']:
+        ai_return = results['ai_enabled']['total_return'] * 100
+        tech_return = results['technical_only']['total_return'] * 100
+        
+        ai_trades = results['ai_enabled']['total_trades']
+        tech_trades = results['technical_only']['total_trades']
+        
+        ai_win_rate = results['ai_enabled']['win_rate'] * 100
+        tech_win_rate = results['technical_only']['win_rate'] * 100
+        
+        print(f"🤖 AI 활성화:")
+        print(f"   총 수익률: {ai_return:+.2f}%")
+        print(f"   거래 횟수: {ai_trades}회")
+        print(f"   승률: {ai_win_rate:.1f}%")
+        
+        print(f"\n📊 기술적 분석만:")
+        print(f"   총 수익률: {tech_return:+.2f}%")
+        print(f"   거래 횟수: {tech_trades}회")
+        print(f"   승률: {tech_win_rate:.1f}%")
+        
+        print(f"\n🎯 성과 차이:")
+        print(f"   수익률 차이: {ai_return - tech_return:+.2f}%p")
+        print(f"   거래 횟수 차이: {ai_trades - tech_trades:+d}회")
+        print(f"   승률 차이: {ai_win_rate - tech_win_rate:+.1f}%p")
+        
+        if ai_return > tech_return:
+            print("🏆 AI 활성화가 더 우수한 성과!")
+        elif tech_return > ai_return:
+            print("🏆 기술적 분석만이 더 우수한 성과!")
+        else:
+            print("🤝 비슷한 성과!")
+    
+    return results
+
+
+def interactive_backtest():
+    """대화형 백테스트 실행"""
+    print("🎮 대화형 백테스트 실행")
+    print("=" * 60)
+    
+    try:
+        # 사용자 입력 받기
+        print("백테스트 설정을 입력해주세요:")
+        
+        # 기간 설정
+        print("\n📅 백테스트 기간 설정:")
+        period_choice = input("1) 최근 1주일  2) 최근 1개월  3) 직접 입력 (1/2/3): ").strip()
+        
+        end_date = datetime.now()
+        
+        if period_choice == '1':
+            start_date = end_date - timedelta(days=7)
+        elif period_choice == '2':
+            start_date = end_date - timedelta(days=30)
+        elif period_choice == '3':
+            start_input = input("시작 날짜 (YYYY-MM-DD): ").strip()
+            end_input = input("종료 날짜 (YYYY-MM-DD): ").strip()
+            start_date = datetime.strptime(start_input, '%Y-%m-%d')
+            end_date = datetime.strptime(end_input, '%Y-%m-%d')
+        else:
+            print("잘못된 선택, 기본값(1개월) 사용")
+            start_date = end_date - timedelta(days=30)
+        
+        # 초기 자본 설정
+        print("\n💰 초기 자본 설정:")
+        capital_choice = input("1) 1000만원  2) 2000만원  3) 직접 입력 (1/2/3): ").strip()
+        
+        if capital_choice == '1':
+            initial_capital = 10_000_000
+        elif capital_choice == '2':
+            initial_capital = 20_000_000
+        elif capital_choice == '3':
+            capital_input = input("초기 자본 (원): ").strip()
+            initial_capital = int(capital_input)
+        else:
+            print("잘못된 선택, 기본값(1000만원) 사용")
+            initial_capital = 10_000_000
+        
+        # AI 활성화 설정
+        print("\n🤖 AI 기능 설정:")
+        ai_choice = input("AI 기능 사용? (y/n): ").strip().lower()
+        ai_enabled = ai_choice in ['y', 'yes', '예', '네']
+        
+        # 설정 확인
+        print(f"\n📋 설정 확인:")
+        print(f"   기간: {start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}")
+        print(f"   초기 자본: {initial_capital:,}원")
+        print(f"   AI 기능: {'활성화' if ai_enabled else '비활성화'}")
+        
+        confirm = input("\n실행하시겠습니까? (y/n): ").strip().lower()
+        if confirm not in ['y', 'yes', '예', '네']:
+            print("백테스트 취소")
+            return None
+        
+        # 백테스트 실행
+        engine = BacktestEngine(initial_capital, 0.003)
+        
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+        
+        results = engine.run_backtest(start_str, end_str, ai_enabled)
+        
+        # 결과 저장
+        filename = engine.save_results("interactive_backtest.json")
+        
+        print(f"\n✅ 대화형 백테스트 완료! 결과 파일: {filename}")
+        return results
+        
+    except KeyboardInterrupt:
+        print("\n백테스트 중단됨")
+        return None
+    except Exception as e:
+        print(f"❌ 대화형 백테스트 오류: {e}")
+        return None
+
+
+def main():
+    """메인 함수"""
+    print("🚀 모듈화된 백테스트 엔진")
+    print("=" * 60)
+    
+    while True:
+        print("\n실행할 백테스트를 선택하세요:")
+        print("1) 간단한 백테스트 (기본 설정, 10일)")
+        print("2) 커스텀 백테스트 (사용자 설정, 1개월)")
+        print("3) 비교 백테스트 (AI vs 기술적 분석)")
+        print("4) 대화형 백테스트 (사용자 입력)")
+        print("5) 종료")
+        
+        try:
+            choice = input("\n선택 (1-5): ").strip()
+            
+            if choice == '1':
+                run_simple_backtest()
+            elif choice == '2':
+                run_custom_backtest()
+            elif choice == '3':
+                run_comparison_backtest()
+            elif choice == '4':
+                interactive_backtest()
+            elif choice == '5':
+                print("백테스트 엔진 종료")
+                break
+            else:
+                print("잘못된 선택입니다. 1-5 중에서 선택해주세요.")
+                
+        except KeyboardInterrupt:
+            print("\n백테스트 엔진 종료")
+            break
+        except Exception as e:
+            print(f"❌ 오류 발생: {e}")
+
+
+if __name__ == "__main__":
+    main()

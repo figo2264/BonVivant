@@ -19,10 +19,27 @@ class StockSelector:
         self.data_fetcher = get_data_fetcher()
         self.ai_manager = get_ai_manager()
         self.data_manager = get_data_manager()
+        self.backtest_mode = False  # 백테스트 모드 플래그
+        self.current_backtest_date = None  # 백테스트 현재 날짜
+    
+    def set_backtest_mode(self, enabled: bool, current_date: str = None):
+        """
+        백테스트 모드 설정
+        
+        Args:
+            enabled: 백테스트 모드 활성화 여부
+            current_date: 백테스트 현재 날짜
+        """
+        self.backtest_mode = enabled
+        self.current_backtest_date = current_date
+        if enabled:
+            print(f"🔄 백테스트 모드 활성화: {current_date}")
+        else:
+            print("🔄 실시간 모드 활성화")
     
     def enhanced_stock_selection(self, current_date=None) -> List[Dict[str, Any]]:
         """
-        기술적 분석 강화 종목 선정 (백테스트 엔진 로직 재현)
+        기술적 분석 강화 종목 선정 (백테스트 엔진 로직 재현) - 백테스트 모드 지원
         
         Args:
             current_date: 현재 날짜 (백테스트 시 사용)
@@ -31,12 +48,27 @@ class StockSelector:
             List[Dict]: 선정된 종목 정보 리스트
         """
         try:
-            print(f"📊 {'기술적 분석 강화 종목 분석 시작...' if not current_date else f'{current_date} 종목 선정 시작...'}")
-            
-            # 현재 날짜의 시장 데이터 조회
-            if current_date:
-                market_data = self.data_fetcher.get_market_data_by_date_range(current_date, n_days_before=25)
+            # 백테스트 모드일 때 날짜 설정
+            if self.backtest_mode and current_date:
+                self.current_backtest_date = current_date
+                effective_date = current_date
+            elif self.backtest_mode and self.current_backtest_date:
+                effective_date = self.current_backtest_date
             else:
+                effective_date = current_date
+            
+            print(f"📊 {'백테스트' if self.backtest_mode else '실시간'} 종목 분석 시작... ({effective_date or '현재'})")
+            
+            # 현재 날짜의 시장 데이터 조회 (백테스트 모드 고려)
+            if effective_date:
+                if self.backtest_mode:
+                    # 백테스트 모드: 특정 날짜 기준으로 과거 데이터만 사용
+                    market_data = self.data_fetcher.get_market_data_by_date_range(effective_date, n_days_before=25)
+                else:
+                    # 실시간 모드: 지정된 날짜 기준
+                    market_data = self.data_fetcher.get_market_data_by_date_range(effective_date, n_days_before=25)
+            else:
+                # 날짜 지정 없음: 최신 데이터 사용
                 market_data = self.data_fetcher.get_past_data_total(n=25)
             
             if market_data.empty:
@@ -49,8 +81,8 @@ class StockSelector:
             market_data['20d_ma'] = market_data.groupby('ticker')['close'].rolling(20, min_periods=1).mean().reset_index(0, drop=True)
             
             # 현재 날짜 데이터만 추출
-            if current_date:
-                today_data = market_data[market_data['timestamp'] == current_date].copy()
+            if effective_date:
+                today_data = market_data[market_data['timestamp'] == effective_date].copy()
             else:
                 today_data = market_data[market_data['timestamp'] == market_data['timestamp'].max()].copy()
                 
@@ -70,16 +102,25 @@ class StockSelector:
             if traditional_candidates.empty:
                 return []
             
-            # 기술적 분석 점수 추가 분석
+            # 기술적 분석 점수 추가 분석 (백테스트 모드 고려)
             enhanced_candidates = []
             
             for _, row in traditional_candidates.iterrows():
                 ticker = row['ticker']
                 
                 # 🔧 데이터 검증 강화 (백테스트 엔진 기능 적용)
-                if not validate_ticker_data(ticker):
-                    print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
-                    continue
+                if self.backtest_mode:
+                    # 백테스트 모드에서는 data_validator 직접 사용
+                    from ..backtest.data_validator import get_data_validator
+                    validator = get_data_validator()
+                    if not validator.validate_ticker_data(ticker, effective_date):
+                        print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
+                        continue
+                else:
+                    # 실시간 모드에서는 기존 검증 방식 사용
+                    if not validate_ticker_data(ticker):
+                        print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
+                        continue
                 
                 # 기술적 분석 점수 계산
                 technical_score = get_technical_score(ticker)
