@@ -258,11 +258,50 @@ def prepare_training_data(lookback_days=1000):
 
             features = valid_data[available_features].values
 
-            # 개선된 타겟 생성: 이진 분류
+            # 🎯 개선된 타겟 생성: 안정성 중심 이진 분류 (백테스트 엔진과 동일)
             future_5d_return = valid_data['future_5d_return']
             
-            # 이진 분류: 0(손실/횡보), 1(수익)
-            targets = np.where(future_5d_return >= 0.01, 1, 0)
+            # 🎯 타겟 재정의 - 안정성 중심 접근
+            # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
+            # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
+            
+            # 1단계: 기본 수익률 기준 상향
+            basic_profit_threshold = 0.015  # 1.5%
+            
+            # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
+            try:
+                # 변동성 계산 (5일간 일별 수익률의 표준편차)
+                volatility_5d = valid_data['return_1d'].rolling(5).std()
+                volatility_median = volatility_5d.median()
+                
+                # 급격한 하락 방지 (5일간 최대 하락률 체크)
+                min_return_5d = valid_data['return_1d'].rolling(5).min()
+                
+                # 안정성 기반 조건들
+                basic_profit = future_5d_return >= basic_profit_threshold  # 1.5% 이상 수익
+                stable_volatility = volatility_5d <= volatility_median     # 중간 이하 변동성
+                no_major_crash = min_return_5d >= -0.05                   # 5일간 최대 5% 하락까지만
+                
+                # 최종 안정성 타겟: 모든 조건을 만족하는 경우만 1
+                stable_targets = basic_profit & stable_volatility & no_major_crash
+                
+                # 안정성 타겟의 유효성 검증
+                if len(stable_targets.dropna()) > len(valid_data) * 0.7:  # 70% 이상 유효한 경우만
+                    targets = np.where(stable_targets.fillna(False), 1, 0)
+                    # stable_ratio = np.mean(targets) * 100
+                    # print(f"   📊 {ticker} 안정성 타겟 적용: {np.sum(targets)}/{len(targets)} (안정 수익 비율: {stable_ratio:.1f}%)")
+                else:
+                    # 안정성 조건이 너무 엄격하면 기본 타겟 사용
+                    targets = np.where(future_5d_return >= basic_profit_threshold, 1, 0)
+                    # basic_ratio = np.mean(targets) * 100
+                    # print(f"   📊 {ticker} 기본 타겟 적용: {np.sum(targets)}/{len(targets)} (수익 비율: {basic_ratio:.1f}%)")
+                    
+            except Exception as e:
+                # 안정성 계산 실패시 기본 타겟으로 대체
+                targets = np.where(future_5d_return >= basic_profit_threshold, 1, 0)
+                # print(f"   ⚠️ {ticker} 안정성 계산 실패, 기본 타겟 사용: {e}")
+                # basic_ratio = np.mean(targets) * 100 if len(targets) > 0 else 0
+                # print(f"   📊 {ticker} 기본 타겟 적용: {np.sum(targets)}/{len(targets)} (수익 비율: {basic_ratio:.1f}%)")
 
             # 미래 데이터가 없는 마지막 7개 제외
             if len(features) > 7:
@@ -320,23 +359,45 @@ def train_ai_model():
         X_test = X[val_end:]
         y_test = y[val_end:]
 
-        # 클래스 불균형 해결
-        X_train_class0 = X_train[y_train == 0]
-        X_train_class1 = X_train[y_train == 1]
+        # 클래스 불균형 해결 (SMOTE 오버샘플링 우선 적용)
+        try:
+            from imblearn.over_sampling import SMOTE
+            
+            # SMOTE 적용 (k_neighbors를 데이터 크기에 맞게 조정)
+            X_train_class0 = X_train[y_train == 0]
+            X_train_class1 = X_train[y_train == 1]
+            min_class_size = min(len(X_train_class0), len(X_train_class1))
+            k_neighbors = min(5, min_class_size - 1) if min_class_size > 1 else 1
+            
+            if k_neighbors >= 1:
+                smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+                X_train, y_train = smote.fit_resample(X_train, y_train)
+                print(f"📊 SMOTE 적용 완료: 균형 데이터 생성 ({len(X_train)} 샘플)")
+            else:
+                raise ValueError("SMOTE 적용 불가")
+                
+        except Exception as e:
+            print(f"⚠️ SMOTE 적용 실패, 기존 리샘플링 사용: {e}")
+            # 기존 리샘플링 방식
+            from sklearn.utils import resample
+            
+            X_train_class0 = X_train[y_train == 0]
+            X_train_class1 = X_train[y_train == 1]
+            
+            if len(X_train_class0) > len(X_train_class1):
+                X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5), random_state=42)
+                X_train_class1_resampled = X_train_class1
+            else:
+                X_train_class0_resampled = X_train_class0
+                X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5), random_state=42)
+            
+            X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
+            y_train = np.hstack([
+                np.zeros(len(X_train_class0_resampled)),
+                np.ones(len(X_train_class1_resampled))
+            ])
         
-        if len(X_train_class0) > len(X_train_class1):
-            X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5), random_state=42)
-            X_train_class1_resampled = X_train_class1
-        else:
-            X_train_class0_resampled = X_train_class0
-            X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5), random_state=42)
-        
-        X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
-        y_train = np.hstack([
-            np.zeros(len(X_train_class0_resampled)),
-            np.ones(len(X_train_class1_resampled))
-        ])
-        
+        # 셔플 (공통)
         shuffle_idx = np.random.permutation(len(X_train))
         X_train = X_train[shuffle_idx]
         y_train = y_train[shuffle_idx].astype(int)
@@ -391,8 +452,9 @@ def train_ai_model():
         y_pred_val_proba = model.predict(X_val)
         y_pred_test_proba = model.predict(X_test)
         
-        y_pred_val = (y_pred_val_proba > 0.5).astype(int)
-        y_pred_test = (y_pred_test_proba > 0.5).astype(int)
+        # 이진 분류 예측 (임계값 강화: 0.5 → 0.7)
+        y_pred_val = (y_pred_val_proba > 0.7).astype(int)
+        y_pred_test = (y_pred_test_proba > 0.7).astype(int)
         
         val_accuracy = accuracy_score(y_val, y_pred_val)
         test_accuracy = accuracy_score(y_test, y_pred_test)

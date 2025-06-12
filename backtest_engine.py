@@ -209,12 +209,47 @@ class BacktestEngine:
                 
                 features = valid_data[available_features].values
                 
-                # 개선된 타겟 생성: 이진 분류로 단순화
+                # 개선된 타겟 생성: 안정성 중심 이진 분류
                 future_5d_return = valid_data['future_5d_return']
                 
-                # 이진 분류: 0(손실/횡보), 1(수익)
-                # 수수료 0.3% × 2 = 0.6% 고려하여 1% 이상을 수익으로 정의
-                targets = np.where(future_5d_return >= 0.01, 1, 0)
+                # 🎯 타겟 재정의 - 안정성 중심 접근
+                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
+                # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
+                
+                # 1단계: 기본 수익률 기준 상향
+                basic_profit_threshold = 0.015  # 1.5%
+                
+                # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
+                try:
+                    # 변동성 계산 (5일간 일별 수익률의 표준편차)
+                    volatility_5d = valid_data['return_1d'].rolling(5).std()
+                    volatility_median = volatility_5d.median()
+                    
+                    # 급격한 하락 방지 (5일간 최대 하락률 체크)
+                    min_return_5d = valid_data['return_1d'].rolling(5).min()
+                    
+                    # 안정성 기반 조건들
+                    basic_profit = future_5d_return >= basic_profit_threshold  # 1.5% 이상 수익
+                    stable_volatility = volatility_5d <= volatility_median     # 중간 이하 변동성
+                    no_major_crash = min_return_5d >= -0.05                   # 5일간 최대 5% 하락까지만
+                    
+                    # 최종 안정성 타겟: 모든 조건을 만족하는 경우만 1
+                    stable_targets = basic_profit & stable_volatility & no_major_crash
+                    
+                    # 안정성 타겟의 유효성 검증
+                    if len(stable_targets.dropna()) > len(valid_data) * 0.7:  # 70% 이상 유효한 경우만
+                        targets = np.where(stable_targets.fillna(False), 1, 0)
+                        # print(f"   📊 안정성 타겟 적용: {np.sum(targets)}/{len(targets)} (안정 수익 비율: {np.mean(targets)*100:.1f}%)")
+                    else:
+                        # 안정성 조건이 너무 엄격하면 기본 타겟 사용
+                        targets = np.where(future_5d_return >= basic_profit_threshold, 1, 0)
+                        # print(f"   📊 기본 타겟 적용: {np.sum(targets)}/{len(targets)} (수익 비율: {np.mean(targets)*100:.1f}%)")
+                        
+                except Exception as e:
+                    # 안정성 계산 실패시 기본 타겟으로 대체
+                    targets = np.where(future_5d_return >= basic_profit_threshold, 1, 0)
+                    # print(f"   ⚠️ 안정성 계산 실패, 기본 타겟 사용: {e}")
+                    # print(f"   📊 기본 타겟 적용: {np.sum(targets)}/{len(targets)} (수익 비율: {np.mean(targets)*100:.1f}%)")
                 
                 # 미래 데이터가 없는 마지막 7개 제외
                 if len(features) > 7:
@@ -274,34 +309,52 @@ class BacktestEngine:
             X_test = X[val_end:]
             y_test = y[val_end:]
             
-            # 클래스 불균형 해결을 위한 언더샘플링 (훈련 데이터만)
-            from sklearn.utils import resample
-            
-            # 각 클래스별로 데이터 분리
+            # 각 클래스별로 데이터 분리 (먼저 정의)
             X_train_class0 = X_train[y_train == 0]
             X_train_class1 = X_train[y_train == 1]
             
-            # 균형잡힌 샘플링
-            min_class_size = min(len(X_train_class0), len(X_train_class1))
+            # 클래스 불균형 해결을 위한 SMOTE 오버샘플링 (훈련 데이터만)
+            try:
+                from imblearn.over_sampling import SMOTE
+                
+                # SMOTE 적용 (k_neighbors를 데이터 크기에 맞게 조정)
+                min_class_size = min(len(X_train_class0), len(X_train_class1))
+                k_neighbors = min(5, min_class_size - 1) if min_class_size > 1 else 1
+                
+                if k_neighbors >= 1:
+                    smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+                    X_train, y_train = smote.fit_resample(X_train, y_train)
+                    print(f"📊 SMOTE 적용 완료: 균형 데이터 생성")
+                else:
+                    # SMOTE 적용 불가시 기존 방식 사용
+                    raise ValueError("SMOTE 적용 불가")
+                    
+            except Exception as e:
+                print(f"⚠️ SMOTE 적용 실패, 기존 리샘플링 사용: {e}")
+                # 기존 언더/오버샘플링 방식
+                from sklearn.utils import resample
+                
+                # 균형잡힌 샘플링
+                min_class_size = min(len(X_train_class0), len(X_train_class1))
+                
+                # 언더샘플링 또는 오버샘플링
+                if len(X_train_class0) > len(X_train_class1):
+                    # 클래스 0이 더 많으면 언더샘플링
+                    X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5), random_state=42)
+                    X_train_class1_resampled = X_train_class1
+                else:
+                    # 클래스 1이 더 많으면 언더샘플링
+                    X_train_class0_resampled = X_train_class0
+                    X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5), random_state=42)
+                
+                # 재결합
+                X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
+                y_train = np.hstack([
+                    np.zeros(len(X_train_class0_resampled)),
+                    np.ones(len(X_train_class1_resampled))
+                ])
             
-            # 언더샘플링 또는 오버샘플링
-            if len(X_train_class0) > len(X_train_class1):
-                # 클래스 0이 더 많으면 언더샘플링
-                X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5), random_state=42)
-                X_train_class1_resampled = X_train_class1
-            else:
-                # 클래스 1이 더 많으면 언더샘플링
-                X_train_class0_resampled = X_train_class0
-                X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5), random_state=42)
-            
-            # 재결합
-            X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
-            y_train = np.hstack([
-                np.zeros(len(X_train_class0_resampled)),
-                np.ones(len(X_train_class1_resampled))
-            ])
-            
-            # 셔플
+            # 셔플 (공통)
             shuffle_idx = np.random.permutation(len(X_train))
             X_train = X_train[shuffle_idx]
             y_train = y_train[shuffle_idx].astype(int)
@@ -360,9 +413,9 @@ class BacktestEngine:
             y_pred_val_proba = model.predict(X_val)
             y_pred_test_proba = model.predict(X_test)
             
-            # 이진 분류 예측
-            y_pred_val = (y_pred_val_proba > 0.5).astype(int)
-            y_pred_test = (y_pred_test_proba > 0.5).astype(int)
+            # 이진 분류 예측 (임계값 강화: 0.5 → 0.7)
+            y_pred_val = (y_pred_val_proba > 0.7).astype(int)
+            y_pred_test = (y_pred_test_proba > 0.7).astype(int)
             
             val_accuracy = accuracy_score(y_val, y_pred_val)
             test_accuracy = accuracy_score(y_test, y_pred_test)
@@ -553,15 +606,15 @@ class BacktestEngine:
         # AI 점수로 정렬
         ai_scored_tickers.sort(key=lambda x: x['ai_score'], reverse=True)
         
-        # 신뢰도 기준 현실화: 모델 품질에 따라 동적 조정
+        # 신뢰도 기준 강화: 모델 품질에 따라 동적 조정
         if model_quality_score >= 65:
-            min_score_threshold = 0.55  # 우수한 모델: 0.55 이상
+            min_score_threshold = 0.65  # 우수한 모델: 0.65 이상 (기존 0.55에서 상향)
             max_selections = 5
         elif model_quality_score >= 50:
-            min_score_threshold = 0.60  # 양호한 모델: 0.60 이상
+            min_score_threshold = 0.70  # 양호한 모델: 0.70 이상 (기존 0.60에서 상향)
             max_selections = 4
         else:
-            min_score_threshold = 0.65  # 보통 모델: 0.65 이상
+            min_score_threshold = 0.75  # 보통 모델: 0.75 이상 (기존 0.65에서 상향)
             max_selections = 3
 
         print(f"📏 신뢰도 기준: {min_score_threshold:.2f} 이상 (최대 {max_selections}개)")
@@ -615,20 +668,180 @@ class BacktestEngine:
         return final_selection
 
     def get_past_data(self, ticker, n=100):
-        """개별 종목 과거 원시 데이터 조회 (FinanceDataReader 사용)"""
+        """개별 종목 과거 원시 데이터 조회 (안정성 강화)"""
         try:
-            data = fdr.DataReader(ticker, start=None, end=None)
-            data.columns = [col.lower() for col in data.columns]
-            data.index.name = 'timestamp'
-            data = data.reset_index()
+            # 1차 시도: FinanceDataReader
+            try:
+                data = fdr.DataReader(ticker, start=None, end=None)
+                if not data.empty:
+                    data.columns = [col.lower() for col in data.columns]
+                    data.index.name = 'timestamp'
+                    data = data.reset_index()
+                    
+                    if n == 1:
+                        return data.iloc[-1:].copy()
+                    else:
+                        return data.tail(n).copy()
+            except Exception as e:
+                print(f"⚠️ {ticker}: FinanceDataReader 조회 실패 ({e})")
             
-            if n == 1:
-                return data.iloc[-1:].copy()
-            else:
-                return data.tail(n).copy()
-        except Exception as e:
-            print(f"❌ {ticker} 데이터 조회 실패: {e}")
+            # 2차 시도: pykrx 사용
+            try:
+                from datetime import datetime, timedelta
+                end_date = datetime.now().strftime('%Y%m%d')
+                start_date = (datetime.now() - timedelta(days=n*2)).strftime('%Y%m%d')
+                
+                # KOSPI 시도
+                try:
+                    kospi_data = pystock.get_market_ohlcv(start_date, end_date, ticker, market='KOSPI')
+                    if not kospi_data.empty:
+                        kospi_data = kospi_data.rename(columns={
+                            '시가': 'open', '고가': 'high', '저가': 'low', '종가': 'close',
+                            '거래량': 'volume', '거래대금': 'trade_amount'
+                        })
+                        kospi_data.index.name = 'timestamp'
+                        kospi_data = kospi_data.reset_index()
+                        print(f"✅ {ticker}: pykrx KOSPI 데이터 조회 성공")
+                        return kospi_data.tail(n).copy() if n > 1 else kospi_data.iloc[-1:].copy()
+                except:
+                    pass
+                
+                # KOSDAQ 시도
+                try:
+                    kosdaq_data = pystock.get_market_ohlcv(start_date, end_date, ticker, market='KOSDAQ')
+                    if not kosdaq_data.empty:
+                        kosdaq_data = kosdaq_data.rename(columns={
+                            '시가': 'open', '고가': 'high', '저가': 'low', '종가': 'close',
+                            '거래량': 'volume', '거래대금': 'trade_amount'
+                        })
+                        kosdaq_data.index.name = 'timestamp'
+                        kosdaq_data = kosdaq_data.reset_index()
+                        print(f"✅ {ticker}: pykrx KOSDAQ 데이터 조회 성공")
+                        return kosdaq_data.tail(n).copy() if n > 1 else kosdaq_data.iloc[-1:].copy()
+                except:
+                    pass
+                    
+            except Exception as e:
+                print(f"⚠️ {ticker}: pykrx 조회 실패 ({e})")
+            
+            print(f"❌ {ticker}: 모든 데이터 소스 조회 실패")
             return pd.DataFrame()
+            
+        except Exception as e:
+            print(f"❌ {ticker} 데이터 조회 치명적 오류: {e}")
+            return pd.DataFrame()
+
+    def validate_ticker_data(self, ticker, current_date, min_days=5):
+        """
+        종목 데이터 존재 여부 사전 확인 (강화된 버전)
+        
+        Args:
+            ticker: 종목 코드
+            current_date: 현재 날짜
+            min_days: 최소 필요 데이터 일수
+            
+        Returns:
+            bool: 데이터 유효성 여부
+        """
+        try:
+            # 1. 기본 데이터 조회 (더 많은 데이터로 조회)
+            data = self.get_past_data(ticker, n=min_days * 3)  # 여유있게 조회
+            if data.empty:
+                print(f"⚠️ {ticker}: 기본 데이터 조회 실패")
+                return False
+            
+            # 2. 현재 날짜 이전 데이터만 필터링
+            current_date_pd = pd.to_datetime(current_date)
+            valid_data = data[pd.to_datetime(data['timestamp']) <= current_date_pd]
+            
+            # 3. 최소 데이터 개수 확인
+            if len(valid_data) < min_days:
+                print(f"⚠️ {ticker}: 데이터 부족 ({len(valid_data)}개 < {min_days}개)")
+                return False
+            
+            # 4. 최근 데이터 확인 (완화된 기준: 7일 이내)
+            latest_date = pd.to_datetime(valid_data['timestamp'].max())
+            days_diff = (current_date_pd - latest_date).days
+            if days_diff > 7:  # 3일에서 7일로 완화
+                print(f"⚠️ {ticker}: 데이터가 너무 오래됨 ({days_diff}일 전)")
+                return False
+            
+            # 5. 가격 데이터 유효성 확인
+            latest_row = valid_data.iloc[-1]
+            current_price = latest_row.get('close', 0)
+            
+            if current_price <= 0:
+                print(f"⚠️ {ticker}: 유효하지 않은 가격 ({current_price})")
+                return False
+            
+            # 6. 거래량 확인 (0이면 거래 정지 종목일 가능성)
+            volume = latest_row.get('volume', 0)
+            if volume <= 0:
+                print(f"⚠️ {ticker}: 거래량 없음 (거래정지 가능성)")
+                return False
+            
+            # 7. 가격 범위 확인 (리스크 관리)
+            if current_price < 1000:  # 1천원 미만 저가주
+                print(f"⚠️ {ticker}: 저가주 제외 ({current_price:,}원)")
+                return False
+            
+            if current_price > 500_000:  # 50만원 초과 고가주
+                print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
+                return False
+            
+            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
+            return True
+            
+        except Exception as e:
+            print(f"❌ {ticker} 데이터 검증 오류: {e}")
+            # 상세 오류 로깅
+            import traceback
+            print(f"   오류 상세: {traceback.format_exc()}")
+            return False
+
+    def check_stop_loss(self, ticker, current_date, stop_loss_rate=-0.05):
+        """
+        손실 제한 체크
+        
+        Args:
+            ticker: 종목 코드
+            current_date: 현재 날짜
+            stop_loss_rate: 손실 제한 비율 (기본 -5%)
+            
+        Returns:
+            tuple: (should_sell, current_price, loss_rate)
+        """
+        try:
+            holding = self.holdings.get(ticker, {})
+            if holding.get('quantity', 0) <= 0:
+                return False, 0, 0
+            
+            buy_price = holding.get('buy_price', 0)
+            if buy_price <= 0:
+                return False, 0, 0
+            
+            # 현재가 조회
+            current_data = self.get_past_data(ticker, n=5)
+            if current_data.empty:
+                return False, 0, 0
+            
+            # 현재 날짜 이전 데이터만 사용
+            current_date_pd = pd.to_datetime(current_date)
+            valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
+            
+            if valid_data.empty:
+                return False, 0, 0
+            
+            current_price = valid_data.iloc[-1]['close']
+            loss_rate = (current_price - buy_price) / buy_price
+            
+            should_sell = loss_rate <= stop_loss_rate
+            
+            return should_sell, current_price, loss_rate
+            
+        except Exception as e:
+            print(f"⚠️ {ticker} 손실 제한 체크 실패: {e}")
+            return False, 0, 0
 
     def get_market_data(self, date, n_days_before=20):
         """특정 날짜의 전체 시장 데이터 조회 (pykrx 사용)"""
@@ -869,7 +1082,117 @@ class BacktestEngine:
             print(f"기술적 점수 계산 오류 ({ticker}): {e}")
             return 0.5
 
-    def get_technical_hold_signal(self, ticker, current_date):
+    def validate_ticker_data(self, ticker, current_date, min_days=5):
+        """
+        종목 데이터 존재 여부 사전 확인 (강화된 버전)
+        
+        Args:
+            ticker: 종목 코드
+            current_date: 현재 날짜
+            min_days: 최소 필요 데이터 일수
+            
+        Returns:
+            bool: 데이터 유효성 여부
+        """
+        try:
+            # 1. 기본 데이터 조회 (더 많은 데이터로 조회)
+            data = self.get_past_data(ticker, n=min_days * 3)  # 여유있게 조회
+            if data.empty:
+                print(f"⚠️ {ticker}: 기본 데이터 조회 실패")
+                return False
+            
+            # 2. 현재 날짜 이전 데이터만 필터링
+            current_date_pd = pd.to_datetime(current_date)
+            valid_data = data[pd.to_datetime(data['timestamp']) <= current_date_pd]
+            
+            # 3. 최소 데이터 개수 확인
+            if len(valid_data) < min_days:
+                print(f"⚠️ {ticker}: 데이터 부족 ({len(valid_data)}개 < {min_days}개)")
+                return False
+            
+            # 4. 최근 데이터 확인 (완화된 기준: 7일 이내)
+            latest_date = pd.to_datetime(valid_data['timestamp'].max())
+            days_diff = (current_date_pd - latest_date).days
+            if days_diff > 7:  # 3일에서 7일로 완화
+                print(f"⚠️ {ticker}: 데이터가 너무 오래됨 ({days_diff}일 전)")
+                return False
+            
+            # 5. 가격 데이터 유효성 확인
+            latest_row = valid_data.iloc[-1]
+            current_price = latest_row.get('close', 0)
+            
+            if current_price <= 0:
+                print(f"⚠️ {ticker}: 유효하지 않은 가격 ({current_price})")
+                return False
+            
+            # 6. 거래량 확인 (0이면 거래 정지 종목일 가능성)
+            volume = latest_row.get('volume', 0)
+            if volume <= 0:
+                print(f"⚠️ {ticker}: 거래량 없음 (거래정지 가능성)")
+                return False
+            
+            # 7. 가격 범위 확인 (리스크 관리)
+            if current_price < 1000:  # 1천원 미만 저가주
+                print(f"⚠️ {ticker}: 저가주 제외 ({current_price:,}원)")
+                return False
+            
+            if current_price > 500_000:  # 50만원 초과 고가주
+                print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
+                return False
+            
+            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
+            return True
+            
+        except Exception as e:
+            print(f"❌ {ticker} 데이터 검증 오류: {e}")
+            # 상세 오류 로깅
+            import traceback
+            print(f"   오류 상세: {traceback.format_exc()}")
+            return False
+
+    def check_stop_loss(self, ticker, current_date, stop_loss_rate=-0.05):
+        """
+        손실 제한 체크
+        
+        Args:
+            ticker: 종목 코드
+            current_date: 현재 날짜
+            stop_loss_rate: 손실 제한 비율 (기본 -5%)
+            
+        Returns:
+            tuple: (should_sell, current_price, loss_rate)
+        """
+        try:
+            holding = self.holdings.get(ticker, {})
+            if holding.get('quantity', 0) <= 0:
+                return False, 0, 0
+            
+            buy_price = holding.get('buy_price', 0)
+            if buy_price <= 0:
+                return False, 0, 0
+            
+            # 현재가 조회
+            current_data = self.get_past_data(ticker, n=5)
+            if current_data.empty:
+                return False, 0, 0
+            
+            # 현재 날짜 이전 데이터만 사용
+            current_date_pd = pd.to_datetime(current_date)
+            valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
+            
+            if valid_data.empty:
+                return False, 0, 0
+            
+            current_price = valid_data.iloc[-1]['close']
+            loss_rate = (current_price - buy_price) / buy_price
+            
+            should_sell = loss_rate <= stop_loss_rate
+            
+            return should_sell, current_price, loss_rate
+            
+        except Exception as e:
+            print(f"⚠️ {ticker} 손실 제한 체크 실패: {e}")
+            return False, 0, 0
         """보유 종목에 대한 규칙 기반 홀드/매도 시그널"""
         try:
             data = self.get_past_data(ticker, n=30)
@@ -906,6 +1229,129 @@ class BacktestEngine:
             return max(0.0, min(1.0, hold_score))
             
         except Exception as e:
+            return 0.5
+    
+    def get_technical_hold_signal(self, ticker, current_date):
+        """
+        기술적 분석 기반 홀드 시그널 (백테스트 엔진용)
+        
+        Args:
+            ticker: 종목 코드
+            current_date: 현재 날짜
+            
+        Returns:
+            float: 홀드 시그널 (0.0~1.0, 0.75 이상이면 강홀드)
+        """
+        try:
+            # 데이터 검증부터 수행
+            if not self.validate_ticker_data(ticker, current_date):
+                print(f"⚠️ {ticker}: 홀드 시그널 계산용 데이터 검증 실패")
+                return 0.5
+            
+            # 과거 데이터 조회
+            data = self.get_past_data(ticker, n=30)
+            if data.empty or len(data) < 20:
+                print(f"⚠️ {ticker}: 홀드 시그널용 데이터 부족")
+                return 0.5
+            
+            # 현재 날짜 이후 데이터 제거
+            current_date_pd = pd.to_datetime(current_date)
+            data = data[pd.to_datetime(data['timestamp']) <= current_date_pd].copy()
+            if len(data) < 20:
+                print(f"⚠️ {ticker}: 홀드 시그널용 유효 데이터 부족")
+                return 0.5
+            
+            # 기술적 지표 생성
+            data = self.create_technical_features(data)
+            latest = data.iloc[-1]
+            
+            # 홀드 점수 계산 시작
+            hold_score = 0.5  # 기본 중립점수
+            
+            print(f"🔍 {ticker} 홀드 시그널 분석:")
+            
+            # 1. 단기 모멘텀 (30% 가중치)
+            return_1d = latest.get('return_1d', 0)
+            if return_1d > 0.03:  # 3% 이상 상승
+                momentum_boost = 0.25
+                hold_score += momentum_boost
+                print(f"   📈 강한 상승 모멘텀: +{momentum_boost:.2f} (1일 수익률: {return_1d*100:+.1f}%)")
+            elif return_1d > 0.01:  # 1% 이상 상승
+                momentum_boost = 0.15
+                hold_score += momentum_boost
+                print(f"   📈 상승 모멘텀: +{momentum_boost:.2f} (1일 수익률: {return_1d*100:+.1f}%)")
+            elif return_1d < -0.02:  # 2% 이상 하락
+                momentum_penalty = -0.2
+                hold_score += momentum_penalty
+                print(f"   📉 하락 모멘텀: {momentum_penalty:.2f} (1일 수익률: {return_1d*100:+.1f}%)")
+            
+            # 2. RSI 과매수/과매도 체크 (25% 가중치)
+            rsi_14 = latest.get('rsi_14', 50)
+            if rsi_14 > 75:  # 과매수
+                rsi_penalty = -0.25
+                hold_score += rsi_penalty
+                print(f"   ⚠️ RSI 과매수: {rsi_penalty:.2f} (RSI: {rsi_14:.1f})")
+            elif rsi_14 < 30:  # 과매도 (홀드 유리)
+                rsi_boost = 0.15
+                hold_score += rsi_boost
+                print(f"   💪 RSI 과매도 반등 기대: +{rsi_boost:.2f} (RSI: {rsi_14:.1f})")
+            else:
+                print(f"   📊 RSI 정상 범위: {rsi_14:.1f}")
+            
+            # 3. 볼린저 밴드 위치 (20% 가중치)
+            bb_position = latest.get('bb_position', 0)
+            if bb_position > 0.8:  # 상단 근처 (매도 압력)
+                bb_penalty = -0.2
+                hold_score += bb_penalty
+                print(f"   📊 볼린저 밴드 상단: {bb_penalty:.2f} (위치: {bb_position:.2f})")
+            elif bb_position < -0.5:  # 하단 근처 (반등 기대)
+                bb_boost = 0.1
+                hold_score += bb_boost
+                print(f"   📊 볼린저 밴드 하단: +{bb_boost:.2f} (위치: {bb_position:.2f})")
+            
+            # 4. 거래량 급증 체크 (15% 가중치)
+            volume_ratio = latest.get('volume_ratio_5d', 1.0)
+            if volume_ratio > 2.0:  # 거래량 2배 이상 급증
+                volume_boost = 0.15
+                hold_score += volume_boost
+                print(f"   📊 거래량 급증: +{volume_boost:.2f} (비율: {volume_ratio:.1f}배)")
+            
+            # 5. 중기 추세 확인 (10% 가중치)
+            price_ma_ratio_20 = latest.get('price_ma_ratio_20', 1.0)
+            if price_ma_ratio_20 > 1.05:  # 20일 이평선 위 5% 이상
+                trend_boost = 0.1
+                hold_score += trend_boost
+                print(f"   📈 중기 상승 추세: +{trend_boost:.2f} (20일선 대비: {(price_ma_ratio_20-1)*100:+.1f}%)")
+            elif price_ma_ratio_20 < 0.95:  # 20일 이평선 아래 5% 이상
+                trend_penalty = -0.1
+                hold_score += trend_penalty
+                print(f"   📉 중기 하락 추세: {trend_penalty:.2f} (20일선 대비: {(price_ma_ratio_20-1)*100:+.1f}%)")
+            
+            # 최종 점수 조정
+            final_score = max(0.0, min(1.0, hold_score))
+            
+            # 시그널 강도 분류
+            if final_score >= 0.75:
+                signal_strength = "강홀드"
+                signal_color = "🟢"
+            elif final_score >= 0.6:
+                signal_strength = "홀드"
+                signal_color = "🟡"
+            elif final_score >= 0.4:
+                signal_strength = "중립"
+                signal_color = "⚪"
+            else:
+                signal_strength = "매도신호"
+                signal_color = "🔴"
+            
+            print(f"   {signal_color} 최종 홀드 시그널: {final_score:.3f} ({signal_strength})")
+            
+            return final_score
+            
+        except Exception as e:
+            print(f"❌ {ticker} 홀드 시그널 계산 오류: {e}")
+            import traceback
+            print(f"   오류 상세: {traceback.format_exc()}")
             return 0.5
 
     def enhanced_stock_selection(self, current_date):
@@ -989,7 +1435,7 @@ class BacktestEngine:
             return []
 
     def simulate_buy(self, candidates, current_date, max_positions=5):
-        """매수 시뮬레이션 (AI 점수 활용)"""
+        """매수 시뮬레이션 (데이터 검증 강화)"""
         bought_count = 0
         total_invested = 0
         
@@ -1013,7 +1459,21 @@ class BacktestEngine:
         print(f"   사용 가능 현금: {available_cash:,.0f}원")
         print(f"   종목당 기본 투자: {investment_per_stock:,.0f}원")
         
-        for candidate in candidates[:available_slots]:
+        # 데이터 검증된 후보만 필터링
+        validated_candidates = []
+        for candidate in candidates:
+            ticker = candidate['ticker']
+            
+            # 🔧 데이터 검증 강화
+            if not self.validate_ticker_data(ticker, current_date):
+                print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
+                continue
+            
+            validated_candidates.append(candidate)
+        
+        print(f"   ✅ 검증 통과: {len(validated_candidates)}개 종목")
+        
+        for candidate in validated_candidates[:available_slots]:
             ticker = candidate['ticker']
             current_price = candidate['current_price']
             technical_score = candidate['technical_score']
@@ -1100,7 +1560,7 @@ class BacktestEngine:
         return bought_count, total_invested
 
     def simulate_sell(self, current_date):
-        """매도 시뮬레이션 (3-5일 보유 전략)"""
+        """매도 시뮬레이션 (3-5일 보유 전략 + 손실 제한)"""
         sold_count = 0
         total_profit = 0
         tickers_to_sell = []
@@ -1115,37 +1575,48 @@ class BacktestEngine:
                 
             holding_days = self.holding_period.get(ticker, 0)
             should_sell = False
+            sell_reason = ""
             
             print(f"   {ticker}: {holding_days}일 보유 중")
             
-            # 기본 3일 룰
-            if holding_days >= 3:
+            # 🔧 1. 손실 제한 체크 (우선순위 최고)
+            stop_loss_sell, current_price, loss_rate = self.check_stop_loss(ticker, current_date)
+            if stop_loss_sell:
                 should_sell = True
+                sell_reason = f"손실제한 (손실률: {loss_rate*100:.1f}%)"
+                print(f"   🛑 {ticker}: 손실 제한 매도 - 손실률 {loss_rate*100:.1f}%")
+            
+            # 2. 기본 3일 룰 (손실 제한이 아닌 경우만)
+            elif holding_days >= 3:
+                should_sell = True
+                sell_reason = f"보유기간 ({holding_days}일)"
                 print(f"   → {ticker}: 3일 이상 보유로 매도 검토")
                 
-                # 기술적 홀드 시그널 체크 (3일차에만)
-                if holding_days == 3:
+                # 기술적 홀드 시그널 체크 (3일차에만, 손실이 없는 경우만)
+                if holding_days == 3 and loss_rate > -0.02:  # 2% 이상 손실이 아닌 경우만
                     try:
                         hold_signal = self.get_technical_hold_signal(ticker, current_date)
                         
                         if hold_signal >= 0.75:
                             should_sell = False
+                            sell_reason = ""
                             print(f"   → {ticker}: 기술적 분석 강홀드 신호로 1일 연장 (신호: {hold_signal:.3f})")
                     except Exception as e:
                         print(f"   → {ticker}: 홀드 시그널 계산 오류: {e}")
             
-            # 안전장치: 5일 이상은 무조건 매도
+            # 3. 안전장치: 5일 이상은 무조건 매도
             if holding_days >= 5:
                 should_sell = True
+                sell_reason = f"5일 안전룰"
                 print(f"   → {ticker}: 5일 안전룰 적용")
             
             if should_sell:
-                tickers_to_sell.append(ticker)
+                tickers_to_sell.append((ticker, sell_reason))
         
         print(f"📤 매도 대상 종목: {len(tickers_to_sell)}개")
         
         # 매도 실행
-        for ticker in tickers_to_sell:
+        for ticker, sell_reason in tickers_to_sell:
             try:
                 # 현재가 조회 - 데이터 소스 통합
                 current_data = self.get_past_data(ticker, n=5)  # 여유있게 5일 데이터
@@ -1166,7 +1637,7 @@ class BacktestEngine:
                 quantity = holding['quantity']
                 buy_price = holding['buy_price']
                 
-                print(f"📤 {ticker} 매도 실행: {quantity}주 @ {current_price:,}원")
+                print(f"📤 {ticker} 매도 실행: {quantity}주 @ {current_price:,}원 ({sell_reason})")
                 
                 # 매도 금액 계산
                 sell_amount = quantity * current_price
@@ -1193,7 +1664,8 @@ class BacktestEngine:
                     'fee': transaction_fee,
                     'profit': profit,
                     'profit_rate': profit_rate,
-                    'holding_days': self.holding_period[ticker]
+                    'holding_days': self.holding_period[ticker],
+                    'sell_reason': sell_reason
                 })
                 
                 sold_count += 1
@@ -1549,7 +2021,7 @@ if __name__ == "__main__":
     
     # 백테스팅 실행 (AI 기능 포함)
     # 2025년 6월 현재 기준으로 충분한 과거 데이터가 있는 기간 사용
-    start_date = "2025-05-10"
+    start_date = "2025-06-01"
     end_date = "2025-06-10"  # 6개월 테스트
     
     try:
