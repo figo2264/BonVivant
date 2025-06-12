@@ -304,30 +304,84 @@ class AIModelManager:
             print("   기존 리샘플링 방법을 사용합니다.")
             return None
 
+    def _clean_features_array(self, X: np.ndarray) -> np.ndarray:
+        """배열 형태 피처 데이터 정제 - 무한대, 이상값 처리"""
+        print("🧹 피처 데이터 정제 중...")
+        
+        # 1. 무한대 값을 NaN으로 변경
+        X_clean = np.where(np.isfinite(X), X, np.nan)
+        
+        # 2. 각 피처별로 이상값 처리 (IQR 방법)
+        for i in range(X_clean.shape[1]):
+            col = X_clean[:, i]
+            valid_values = col[~np.isnan(col)]
+            
+            if len(valid_values) > 10:  # 충분한 데이터가 있을 때만
+                Q1 = np.percentile(valid_values, 25)
+                Q3 = np.percentile(valid_values, 75)
+                IQR = Q3 - Q1
+                if IQR > 0:  # IQR이 0이 아닐 때만
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+                    X_clean[:, i] = np.clip(col, lower_bound, upper_bound)
+        
+        # 3. NaN을 중앙값으로 채우기
+        for i in range(X_clean.shape[1]):
+            col = X_clean[:, i]
+            valid_values = col[~np.isnan(col)]
+            if len(valid_values) > 0:
+                median_val = np.median(valid_values)
+                X_clean[:, i] = np.where(np.isnan(col), median_val, col)
+            else:
+                X_clean[:, i] = 0.0  # 모든 값이 NaN인 경우
+        
+        print(f"✅ 피처 정제 완료: {X_clean.shape}")
+        return X_clean
+
     def _balance_classes_with_smote(self, X_train: np.ndarray, y_train: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """SMOTE를 사용한 클래스 불균형 해결 (안전한 처리)"""
+        """SMOTE를 사용한 클래스 불균형 해결 (개선된 버전)"""
+        # 먼저 데이터 정제
+        X_train_clean = self._clean_features_array(X_train)
+        
         SMOTE = self._safe_import_smote()
 
         if SMOTE is not None:
             try:
+                # 클래스 분포 확인
+                unique, counts = np.unique(y_train, return_counts=True)
+                class_ratio = counts[0] / counts[1] if len(counts) > 1 else 1
+                print(f"📊 원본 클래스 비율: {class_ratio:.2f}:1")
+                
                 # SMOTE 적용 (k_neighbors를 데이터 크기에 맞게 조정)
-                X_train_class0 = X_train[y_train == 0]
-                X_train_class1 = X_train[y_train == 1]
-                min_class_size = min(len(X_train_class0), len(X_train_class1))
-                k_neighbors = min(5, min_class_size - 1) if min_class_size > 1 else 1
+                X_train_class1 = X_train_clean[y_train == 1]
+                min_class_size = len(X_train_class1)
+                k_neighbors = min(5, max(1, min_class_size - 1))
 
-                if k_neighbors >= 1:
-                    smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
-                    X_train, y_train = smote.fit_resample(X_train, y_train)
-                    print(f"📊 SMOTE 적용 완료: 균형 데이터 생성")
-                    return X_train, y_train.astype(int)
+                if k_neighbors >= 1 and min_class_size > 1:
+                    # 클래스 비율에 따라 적절한 sampling_strategy 설정
+                    if class_ratio > 10:  # 10:1 이상이면
+                        target_ratio = 0.1  # 10% 증가
+                    elif class_ratio > 5:  # 5:1 이상이면
+                        target_ratio = 0.15  # 15% 증가
+                    elif class_ratio > 3:  # 3:1 이상이면
+                        target_ratio = 0.25  # 25% 증가
+                    else:
+                        target_ratio = 0.4   # 40% 증가
+                    
+                    print(f"📊 SMOTE 타겟 비율: {target_ratio}")
+                    smote = SMOTE(sampling_strategy=target_ratio, random_state=42, k_neighbors=k_neighbors)
+                    X_train_balanced, y_train_balanced = smote.fit_resample(X_train_clean, y_train)
+                    
+                    print(f"📊 SMOTE 적용 완료")
+                    print(f"📊 균형 후 분포: {np.bincount(y_train_balanced)}")
+                    return X_train_balanced, y_train_balanced.astype(int)
                 else:
                     print("⚠️ SMOTE 적용 불가 (데이터 부족), 기존 방법 사용")
             except Exception as e:
                 print(f"⚠️ SMOTE 적용 실패: {e}")
 
         # SMOTE 없거나 실패시 기존 리샘플링 방법 사용
-        return self._balance_classes_traditional(X_train, y_train)
+        return self._balance_classes_traditional(X_train_clean, y_train)
 
     def _balance_classes_traditional(self, X_train: np.ndarray, y_train: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """전통적인 방법으로 클래스 불균형 해결"""
@@ -362,6 +416,36 @@ class AIModelManager:
         y_train = y_train[shuffle_idx].astype(int)
 
         return X_train, y_train
+
+    def _find_optimal_threshold(self, model, X_val: np.ndarray, y_val: np.ndarray) -> float:
+        """최적 임계값 찾기 (F1 점수 기준)"""
+        try:
+            from sklearn.metrics import precision_recall_curve
+            
+            y_pred_proba = model.predict(X_val)
+            precisions, recalls, thresholds = precision_recall_curve(y_val, y_pred_proba)
+            
+            # F1 점수가 최대인 임계값 찾기
+            f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-10)
+            optimal_idx = np.argmax(f1_scores)
+            optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
+            
+            print(f"📊 최적 임계값: {optimal_threshold:.3f}")
+            print(f"📊 해당 F1 점수: {f1_scores[optimal_idx]:.3f}")
+            
+            # 임계값이 너무 극단적이면 조정
+            if optimal_threshold < 0.05:  # 0.1 → 0.05로 완화
+                optimal_threshold = 0.05
+                print("📊 임계값을 0.05로 조정 (너무 낮음)")
+            elif optimal_threshold > 0.95:  # 0.9 → 0.95로 완화
+                optimal_threshold = 0.95
+                print("📊 임계값을 0.95로 조정 (너무 높음)")
+                
+            return optimal_threshold
+            
+        except Exception as e:
+            print(f"⚠️ 최적 임계값 계산 실패: {e}, 기본값 0.5 사용")
+            return 0.5
 
     def train_ai_model_at_date(self, end_date):
         """특정 날짜 시점에서 AI 모델 훈련 (백테스트 전용)"""
@@ -406,7 +490,7 @@ class AIModelManager:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # LightGBM 파라미터
+            # LightGBM 파라미터 (충돌 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
@@ -415,7 +499,7 @@ class AIModelManager:
                 'feature_fraction': 0.8,
                 'bagging_fraction': 0.8,
                 'bagging_freq': 5,
-                'min_data_in_leaf': 30,
+                'min_data_in_leaf': 20,
                 'lambda_l1': 0.1,
                 'lambda_l2': 0.1,
                 'min_gain_to_split': 0.05,
@@ -423,8 +507,8 @@ class AIModelManager:
                 'verbose': -1,
                 'random_state': 42,
                 'force_col_wise': True,
-                'is_unbalance': True,
-                'boost_from_average': True,
+                'scale_pos_weight': 4.0,  # is_unbalance 제거하고 이것만 사용
+                'boost_from_average': False,
             }
 
             # 클래스 가중치 계산
@@ -623,8 +707,8 @@ class AIModelManager:
                 # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
                 # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
 
-                # 1단계: 기본 수익률 기준 상향
-                basic_profit_threshold = 0.015  # 1.5%
+                # 1단계: 기본 수익률 기준 완화 (1.5% → 1.0%)
+                basic_profit_threshold = 0.01  # 1.0%로 완화
 
                 # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
                 try:
@@ -719,7 +803,7 @@ class AIModelManager:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # 개선된 LightGBM 파라미터 (이진 분류)
+            # LightGBM 파라미터 (충돌 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
@@ -728,7 +812,7 @@ class AIModelManager:
                 'feature_fraction': 0.8,
                 'bagging_fraction': 0.8,
                 'bagging_freq': 5,
-                'min_data_in_leaf': 30,
+                'min_data_in_leaf': 20,
                 'lambda_l1': 0.1,
                 'lambda_l2': 0.1,
                 'min_gain_to_split': 0.05,
@@ -736,8 +820,8 @@ class AIModelManager:
                 'verbose': -1,
                 'random_state': 42,
                 'force_col_wise': True,
-                'is_unbalance': True,
-                'boost_from_average': True,
+                'scale_pos_weight': 4.0,  # is_unbalance 제거하고 이것만 사용
+                'boost_from_average': False,
             }
 
             # 클래스 가중치 계산 (수동으로 계산하여 적용)
@@ -761,17 +845,20 @@ class AIModelManager:
                 lgb_params,
                 train_data,
                 valid_sets=[valid_data],
-                num_boost_round=500,  # 증가
-                callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(50)]
+                num_boost_round=1000,  # 증가
+                callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(100)]  # 조기 종료 완화
             )
+
+            # 최적 임계값 찾기
+            optimal_threshold = self._find_optimal_threshold(model, X_val, y_val)
 
             # 다중 성능 평가 (이진 분류)
             y_pred_val_proba = model.predict(X_val)
             y_pred_test_proba = model.predict(X_test)
 
-            # 이진 분류 예측 (임계값 강화: 0.5 → 0.7)
-            y_pred_val = (y_pred_val_proba > 0.7).astype(int)
-            y_pred_test = (y_pred_test_proba > 0.7).astype(int)
+            # 이진 분류 예측 (최적 임계값 사용)
+            y_pred_val = (y_pred_val_proba > optimal_threshold).astype(int)
+            y_pred_test = (y_pred_test_proba > optimal_threshold).astype(int)
 
             val_accuracy = accuracy_score(y_val, y_pred_val)
             test_accuracy = accuracy_score(y_test, y_pred_test)
@@ -829,6 +916,7 @@ class AIModelManager:
             model.model_quality_score = model_quality_score
             model.test_accuracy = test_accuracy
             model.train_date = end_date
+            model.optimal_threshold = optimal_threshold  # 최적 임계값 저장
 
             return model
 
@@ -917,13 +1005,22 @@ class AIModelManager:
             # AI 예측 (이진 분류)
             prediction_prob = model.predict([features])[0]  # 수익 확률 (0~1)
 
-            # 예측 확률을 그대로 점수로 사용
+            # 최적 임계값 사용 (모델에 저장된 값이 있으면)
+            threshold = getattr(model, 'optimal_threshold', 0.5)
+            prediction_binary = 1 if prediction_prob > threshold else 0
+
+            # 예측 확률을 그대로 점수로 사용하되, 이진 예측 결과도 고려
             final_score = float(prediction_prob)
+            
+            # 이진 예측이 양성인 경우 보너스
+            if prediction_binary == 1:
+                final_score = min(final_score * 1.2, 1.0)  # 20% 보너스, 최대 1.0
 
             # 신뢰도 보정
-            # 극단적인 예측(0.8 이상 또는 0.2 이하)에 보너스
-            if prediction_prob > 0.8 or prediction_prob < 0.2:
-                confidence = abs(prediction_prob - 0.5) * 2  # 0~1 범위
+            # 극단적인 예측(임계값 기준으로 멀리 떨어진 경우)에 보너스
+            distance_from_threshold = abs(prediction_prob - threshold)
+            if distance_from_threshold > 0.2:  # 임계값에서 0.2 이상 차이
+                confidence = min(distance_from_threshold * 2, 1.0)  # 0~1 범위
                 final_score = final_score * 0.8 + confidence * 0.2
 
             return float(final_score)
@@ -1010,8 +1107,8 @@ class AIModelManager:
                 # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
                 # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
 
-                # 1단계: 기본 수익률 기준 상향
-                basic_profit_threshold = 0.015  # 1.5%
+                # 1단계: 기본 수익률 기준 완화 (1.5% → 1.0%)
+                basic_profit_threshold = 0.01  # 1.0%로 완화
 
                 # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
                 try:
@@ -1097,43 +1194,8 @@ class AIModelManager:
             X_test = X[val_end:]
             y_test = y[val_end:]
 
-            # 클래스 불균형 해결 (SMOTE 오버샘플링 우선 적용)
-            try:
-                from imblearn.over_sampling import SMOTE
-
-                # SMOTE 적용 (k_neighbors를 데이터 크기에 맞게 조정)
-                X_train_class0 = X_train[y_train == 0]
-                X_train_class1 = X_train[y_train == 1]
-                min_class_size = min(len(X_train_class0), len(X_train_class1))
-                k_neighbors = min(5, min_class_size - 1) if min_class_size > 1 else 1
-
-                if k_neighbors >= 1:
-                    smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
-                    X_train, y_train = smote.fit_resample(X_train, y_train)
-                    print(f"📊 SMOTE 적용 완료: 균형 데이터 생성 ({len(X_train)} 샘플)")
-                else:
-                    raise ValueError("SMOTE 적용 불가")
-
-            except Exception as e:
-                print(f"⚠️ SMOTE 적용 실패, 기존 리샘플링 사용: {e}")
-                # 기존 리샘플링 방식
-                X_train_class0 = X_train[y_train == 0]
-                X_train_class1 = X_train[y_train == 1]
-
-                if len(X_train_class0) > len(X_train_class1):
-                    X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5),
-                                                        random_state=42)
-                    X_train_class1_resampled = X_train_class1
-                else:
-                    X_train_class0_resampled = X_train_class0
-                    X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5),
-                                                        random_state=42)
-
-                X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
-                y_train = np.hstack([
-                    np.zeros(len(X_train_class0_resampled)),
-                    np.ones(len(X_train_class1_resampled))
-                ])
+            # 클래스 불균형 해결 (개선된 방법 사용)
+            X_train, y_train = self._balance_classes_with_smote(X_train, y_train)
 
             # 셔플 (공통)
             shuffle_idx = np.random.permutation(len(X_train))
@@ -1142,7 +1204,7 @@ class AIModelManager:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # LightGBM 파라미터
+            # LightGBM 파라미터 (충돌 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
@@ -1151,7 +1213,7 @@ class AIModelManager:
                 'feature_fraction': 0.8,
                 'bagging_fraction': 0.8,
                 'bagging_freq': 5,
-                'min_data_in_leaf': 30,
+                'min_data_in_leaf': 20,
                 'lambda_l1': 0.1,
                 'lambda_l2': 0.1,
                 'min_gain_to_split': 0.05,
@@ -1159,8 +1221,8 @@ class AIModelManager:
                 'verbose': -1,
                 'random_state': 42,
                 'force_col_wise': True,
-                'is_unbalance': True,
-                'boost_from_average': True,
+                'scale_pos_weight': 4.0,  # is_unbalance 제거하고 이것만 사용
+                'boost_from_average': False,
             }
 
             # 클래스 가중치 계산
@@ -1177,22 +1239,25 @@ class AIModelManager:
             train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weights)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
-            # 모델 훈련
+            # 모델 훈련 (개선된 설정)
             model = lgb.train(
                 lgb_params,
                 train_data,
                 valid_sets=[valid_data],
-                num_boost_round=500,
-                callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(50)]
+                num_boost_round=1000,  # 증가
+                callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(100)]  # 조기 종료 완화
             )
+
+            # 최적 임계값 찾기
+            optimal_threshold = self._find_optimal_threshold(model, X_val, y_val)
 
             # 성능 평가
             y_pred_val_proba = model.predict(X_val)
             y_pred_test_proba = model.predict(X_test)
 
-            # 이진 분류 예측 (임계값 강화: 0.5 → 0.7)
-            y_pred_val = (y_pred_val_proba > 0.7).astype(int)
-            y_pred_test = (y_pred_test_proba > 0.7).astype(int)
+            # 이진 분류 예측 (최적 임계값 사용)
+            y_pred_val = (y_pred_val_proba > optimal_threshold).astype(int)
+            y_pred_test = (y_pred_test_proba > optimal_threshold).astype(int)
 
             val_accuracy = accuracy_score(y_val, y_pred_val)
             test_accuracy = accuracy_score(y_test, y_pred_test)
@@ -1241,6 +1306,9 @@ class AIModelManager:
             model.save_model('ai_price_prediction_model.txt')
             print("💾 모델 저장 완료: ai_price_prediction_model.txt")
 
+            # 최적 임계값을 모델 객체에 저장
+            model.optimal_threshold = optimal_threshold
+
             # 모델 메타데이터 저장
             model_metadata = {
                 'train_date': datetime.now().isoformat(),
@@ -1255,6 +1323,7 @@ class AIModelManager:
                 'f1_score': float(f1),
                 'precision': float(precision),
                 'recall': float(recall),
+                'optimal_threshold': float(optimal_threshold),  # 최적 임계값 추가
                 'class_distribution': {
                     'train': np.bincount(y_train).tolist(),
                     'test': np.bincount(y_test).tolist()
@@ -1307,6 +1376,7 @@ class AIModelManager:
             print(f"📊 모델 품질: {metadata.get('model_quality_score', 0):.1f}/100")
             print(f"🔢 클래스 수: {metadata.get('class_count', 'Unknown')}")
             print(f"📐 피처 수: {metadata.get('feature_count', 'Unknown')}")
+            print(f"🎯 최적 임계값: {metadata.get('optimal_threshold', 0.5):.3f}")  # 임계값 추가
 
             # 모델이 너무 오래되었는지 확인 (7일 이상)
             train_date = metadata.get('train_date')
