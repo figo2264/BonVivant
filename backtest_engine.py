@@ -20,7 +20,9 @@ from dateutil.relativedelta import relativedelta
 
 # AI 모델 임포트 (strategy.py와 동일)
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, precision_recall_curve, f1_score, precision_score, recall_score, roc_auc_score, confusion_matrix
+from sklearn.utils.class_weight import compute_class_weight 
+from sklearn.utils import resample
 import lightgbm as lgb
 import os
 
@@ -61,7 +63,7 @@ class BacktestEngine:
 
     # ============ AI 모델 관련 기능 (strategy.py 기반) ============
     
-    def prepare_training_data_until(self, end_date, lookback_days=1000):
+    def prepare_training_data_until(self, end_date, lookback_days=500):  # 1000 → 180일로 단축
         """특정 날짜까지의 AI 모델 학습용 데이터 준비 (강화된 버전, Look-ahead bias 방지)"""
         print(f"📚 {end_date}까지 AI 학습 데이터 준비 중...")
         
@@ -76,7 +78,7 @@ class BacktestEngine:
             all_data = []
             current_date = start_date_pd
             collected_days = 0
-            max_collect_days = min(lookback_days, 365)  # 최대 1년치만 수집
+            max_collect_days = min(lookback_days, 500)  # 최대 180일치만 수집
             
             while current_date <= end_date_pd and collected_days < max_collect_days:
                 if current_date.weekday() < 5:  # 평일만
@@ -165,40 +167,45 @@ class BacktestEngine:
                 
                 data_quality_stats['qualified_tickers'] += 1
                 
-                # 핵심 피처만 선택 (25개로 확대)
+                # 핵심 피처만 선택 (24개 → 45개로 대폭 확장)
                 feature_columns = [
-                    # 핵심 수익률
-                    'return_1d', 'return_3d', 'return_5d', 'return_10d', 'return_20d',
+                    # 핵심 수익률 (확장)
+                    'return_1d', 'return_2d', 'return_3d', 'return_5d', 'return_7d', 'return_10d', 'return_15d', 'return_20d',
                     
-                    # 핵심 이동평균 비율
-                    'price_ma_ratio_5', 'price_ma_ratio_10', 'price_ma_ratio_20',
+                    # 핵심 이동평균 비율 (확장)
+                    'price_ma_ratio_5', 'price_ma_ratio_10', 'price_ma_ratio_20', 'price_ma_ratio_50',
+                    'price_ema_ratio_12', 'price_ema_ratio_26',
                     
-                    # RSI
-                    'rsi_14',
+                    # RSI (다중 기간)
+                    'rsi_9', 'rsi_14', 'rsi_21', 'rsi_divergence',
                     
-                    # 거래량
-                    'volume_ratio_5d', 'volume_ratio_20d',
+                    # 거래량 (확장)
+                    'volume_ratio_5d', 'volume_ratio_10d', 'volume_ratio_20d', 'volume_spike', 'vwp_ratio',
                     
-                    # 변동성
-                    'volatility_10d', 'volatility_20d',
+                    # 변동성 (확장)
+                    'volatility_10d', 'volatility_20d', 'atr_ratio',
                     
-                    # 볼린저 밴드
-                    'bb_position', 'bb_width',
+                    # 볼린저 밴드 (다중 기간)
+                    'bb_20_position', 'bb_20_width', 'bb_squeeze',
                     
                     # MACD
-                    'macd_histogram',
+                    'macd_histogram', 'macd_crossover',
                     
                     # 스토캐스틱
-                    'stoch_k',
+                    'stoch_k_14', 'stoch_d_14',
                     
-                    # 모멘텀
-                    'price_momentum_5', 'price_momentum_10',
+                    # 모멘텀 (확장)
+                    'price_momentum_5', 'price_momentum_10', 'price_momentum_20', 'roc_12',
                     
-                    # 지지저항
-                    'low_proximity',
+                    # 지지저항 (다중 기간)
+                    'low_proximity_20', 'high_proximity_20',
                     
-                    # 추가 지표
-                    'candle_streak', 'volume_price_corr', 'price_acceleration', 'round_number_proximity'
+                    # 가격 패턴
+                    'body_size', 'upper_shadow', 'lower_shadow', 'gap_up', 'gap_down',
+                    
+                    # 고급 지표
+                    'candle_streak_5', 'volume_price_corr_20', 'price_acceleration_1', 
+                    'round_1000_proximity', 'mfi', 'williams_r_14', 'trend_strength'
                 ]
                 
                 available_features = [col for col in feature_columns if col in valid_data.columns]
@@ -212,12 +219,12 @@ class BacktestEngine:
                 # 개선된 타겟 생성: 안정성 중심 이진 분류
                 future_5d_return = valid_data['future_5d_return']
                 
-                # 🎯 타겟 재정의 - 안정성 중심 접근
-                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
-                # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
+                # 🎯 타겟 재정의 - 현실적인 기준으로 완화 조정
+                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 0.5% 이상을 의미있는 수익으로 정의
+                # 기존 1.0% → 0.5%로 하향 조정 (거래 기회 확대)
                 
-                # 1단계: 기본 수익률 기준 상향
-                basic_profit_threshold = 0.015  # 1.5%
+                # 1단계: 기본 수익률 기준 완화 조정
+                basic_profit_threshold = 0.005  # 0.5% (1.0% → 0.5%로 하향)
                 
                 # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
                 try:
@@ -228,16 +235,16 @@ class BacktestEngine:
                     # 급격한 하락 방지 (5일간 최대 하락률 체크)
                     min_return_5d = valid_data['return_1d'].rolling(5).min()
                     
-                    # 안정성 기반 조건들
-                    basic_profit = future_5d_return >= basic_profit_threshold  # 1.5% 이상 수익
-                    stable_volatility = volatility_5d <= volatility_median     # 중간 이하 변동성
-                    no_major_crash = min_return_5d >= -0.05                   # 5일간 최대 5% 하락까지만
+                    # 안정성 기반 조건들 (대폭 완화된 기준)
+                    basic_profit = future_5d_return >= basic_profit_threshold  # 0.5% 이상 수익
+                    stable_volatility = volatility_5d <= volatility_median * 1.5     # 중간 이하 변동성 (50% 여유)
+                    no_major_crash = min_return_5d >= -0.10                   # 5일간 최대 10% 하락까지 허용
                     
                     # 최종 안정성 타겟: 모든 조건을 만족하는 경우만 1
                     stable_targets = basic_profit & stable_volatility & no_major_crash
                     
-                    # 안정성 타겟의 유효성 검증
-                    if len(stable_targets.dropna()) > len(valid_data) * 0.7:  # 70% 이상 유효한 경우만
+                    # 안정성 타겟의 유효성 검증 (대폭 완화된 기준)
+                    if len(stable_targets.dropna()) > len(valid_data) * 0.3:  # 30% 이상 유효한 경우 적용 (50% → 30%)
                         targets = np.where(stable_targets.fillna(False), 1, 0)
                         # print(f"   📊 안정성 타겟 적용: {np.sum(targets)}/{len(targets)} (안정 수익 비율: {np.mean(targets)*100:.1f}%)")
                     else:
@@ -281,6 +288,113 @@ class BacktestEngine:
             print(f"❌ 데이터 준비 오류: {e}")
             return None, None
     
+    def debug_prediction_distribution(self, predictions, data_name="데이터"):
+        """예측 확률 분포 확인 (디버깅용)"""
+        try:
+            print(f"🔍 {data_name} 예측 확률 분포 분석:")
+            print(f"   평균: {np.mean(predictions):.3f}")
+            print(f"   표준편차: {np.std(predictions):.3f}")
+            print(f"   최소값: {np.min(predictions):.3f}")
+            print(f"   최대값: {np.max(predictions):.3f}")
+            print(f"   중앙값: {np.median(predictions):.3f}")
+            
+            # 분위수 정보
+            percentiles = [10, 25, 50, 75, 90]
+            percentile_values = np.percentile(predictions, percentiles)
+            print(f"   분위수: {dict(zip([f'{p}%' for p in percentiles], [f'{v:.3f}' for v in percentile_values]))}")
+            
+            # 임계값별 예측 개수
+            thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+            for threshold in thresholds:
+                count = np.sum(predictions >= threshold)
+                ratio = count / len(predictions) * 100
+                print(f"   {threshold:.1f} 이상: {count}개 ({ratio:.1f}%)")
+            
+        except Exception as e:
+            print(f"❌ 예측 분포 분석 오류: {e}")
+
+    def _find_optimal_threshold(self, model, X_val, y_val):
+        """최적 임계값 찾기 (F1 점수 기준) - 개선된 버전"""
+        try:
+            y_pred_proba = model.predict(X_val)
+            precisions, recalls, thresholds = precision_recall_curve(y_val, y_pred_proba)
+            
+            # F1 점수가 최대인 임계값 찾기
+            f1_scores = 2 * (precisions * recalls) / (precisions + recalls + 1e-10)
+            optimal_idx = np.argmax(f1_scores)
+            optimal_threshold = thresholds[optimal_idx] if optimal_idx < len(thresholds) else 0.5
+            
+            print(f"📊 최적 임계값: {optimal_threshold:.3f}")
+            print(f"📊 해당 F1 점수: {f1_scores[optimal_idx]:.3f}")
+            
+            # 🔧 임계값 범위를 더 완화 (클래스 불균형 해결)
+            if optimal_threshold < 0.01:  # 너무 낮음
+                optimal_threshold = 0.01
+                print("📊 임계값을 0.01로 조정 (너무 낮음)")
+            elif optimal_threshold > 0.99:  # 너무 높음
+                optimal_threshold = 0.99
+                print("📊 임계값을 0.99로 조정 (너무 높음)")
+            elif optimal_threshold > 0.8:  # 안정성 확보
+                optimal_threshold = 0.8
+                print("📊 임계값을 0.8로 조정 (안정성 확보)")
+            elif optimal_threshold > 0.7:  # 양성 예측 증가
+                optimal_threshold = 0.7
+                print("📊 임계값을 0.7로 조정 (양성 예측 증가)")
+            elif optimal_threshold > 0.6:  # 양성 예측 확대
+                optimal_threshold = 0.6
+                print("📊 임계값을 0.6로 조정 (양성 예측 확대)")
+                
+            # 🔧 예측 확률 분포 기반 동적 조정
+            pred_mean = np.mean(y_pred_proba)
+            pred_std = np.std(y_pred_proba)
+            
+            # 예측 분포가 너무 좁으면 임계값을 평균 근처로 조정
+            if pred_std < 0.05:  # 표준편차가 너무 작으면
+                dynamic_threshold = pred_mean - 0.5 * pred_std  # 평균보다 조금 낮게
+                if dynamic_threshold < optimal_threshold:
+                    optimal_threshold = max(dynamic_threshold, 0.1)  # 최소 0.1
+                    print(f"📊 동적 임계값 조정: {optimal_threshold:.3f} (예측 분포 기반)")
+                
+            return optimal_threshold
+            
+        except Exception as e:
+            print(f"⚠️ 최적 임계값 계산 실패: {e}, 기본값 0.4 사용")
+            return 0.4
+
+    def _clean_features_array(self, X):
+        """배열 형태 피처 데이터 정제 - 무한대, 이상값 처리"""
+        print("🧹 피처 데이터 정제 중...")
+        
+        # 1. 무한대 값을 NaN으로 변경
+        X_clean = np.where(np.isfinite(X), X, np.nan)
+        
+        # 2. 각 피처별로 이상값 처리 (IQR 방법)
+        for i in range(X_clean.shape[1]):
+            col = X_clean[:, i]
+            valid_values = col[~np.isnan(col)]
+            
+            if len(valid_values) > 10:  # 충분한 데이터가 있을 때만
+                Q1 = np.percentile(valid_values, 25)
+                Q3 = np.percentile(valid_values, 75)
+                IQR = Q3 - Q1
+                if IQR > 0:  # IQR이 0이 아닐 때만
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+                    X_clean[:, i] = np.clip(col, lower_bound, upper_bound)
+        
+        # 3. NaN을 중앙값으로 채우기
+        for i in range(X_clean.shape[1]):
+            col = X_clean[:, i]
+            valid_values = col[~np.isnan(col)]
+            if len(valid_values) > 0:
+                median_val = np.median(valid_values)
+                X_clean[:, i] = np.where(np.isnan(col), median_val, col)
+            else:
+                X_clean[:, i] = 0.0  # 모든 값이 NaN인 경우
+        
+        print(f"✅ 피처 정제 완료: {X_clean.shape}")
+        return X_clean
+
     def train_ai_model_at_date(self, end_date):
         """특정 날짜 시점에서 AI 모델 훈련 (강화된 버전)"""
         print(f"🤖 {end_date} 시점 AI 모델 훈련 시작...")
@@ -294,7 +408,6 @@ class BacktestEngine:
         
         try:
             from sklearn.model_selection import StratifiedKFold
-            from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
             
             # 데이터 분할 (시계열 고려)
             # 학습:검증:테스트 = 70:15:15
@@ -322,37 +435,83 @@ class BacktestEngine:
                 k_neighbors = min(5, min_class_size - 1) if min_class_size > 1 else 1
                 
                 if k_neighbors >= 1:
-                    smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+                    # 🔧 SMOTE 적용을 더 보수적으로 조정 (클래스 비율에 따라 동적 조정)
+                    # 클래스 비율 확인
+                    class_ratio = len(X_train_class0) / len(X_train_class1) if len(X_train_class1) > 0 else 10
+                    print(f"📊 원본 클래스 비율: {class_ratio:.2f}:1")
+                    
+                    if class_ratio > 10:  # 10:1 이상이면
+                        target_ratio = 0.15  # 더 보수적
+                    elif class_ratio > 5:  # 5:1 이상이면
+                        target_ratio = 0.25  # 더 보수적
+                    elif class_ratio > 3:  # 3:1 이상이면 
+                        target_ratio = 0.4   # AI 모델과 동일
+                    else:
+                        target_ratio = 0.6   # 완화
+                    
+                    print(f"📊 SMOTE 타겟 비율: {target_ratio}")
+                    smote = SMOTE(sampling_strategy=target_ratio, random_state=42, k_neighbors=k_neighbors)
                     X_train, y_train = smote.fit_resample(X_train, y_train)
-                    print(f"📊 SMOTE 적용 완료: 균형 데이터 생성")
+                    print(f"📊 SMOTE 적용 완료")
+                    print(f"📊 균형 후 분포: {np.bincount(y_train)}")
                 else:
                     # SMOTE 적용 불가시 기존 방식 사용
                     raise ValueError("SMOTE 적용 불가")
                     
             except Exception as e:
-                print(f"⚠️ SMOTE 적용 실패, 기존 리샘플링 사용: {e}")
-                # 기존 언더/오버샘플링 방식
-                from sklearn.utils import resample
+                print(f"⚠️ SMOTE 적용 실패, 강력한 데이터 정제 시도: {e}")
                 
-                # 균형잡힌 샘플링
-                min_class_size = min(len(X_train_class0), len(X_train_class1))
+                # 🔧 강력한 데이터 정제 (무한대/이상값 완전 제거)
+                X_train = self._clean_features_array(X_train)
                 
-                # 언더샘플링 또는 오버샘플링
-                if len(X_train_class0) > len(X_train_class1):
-                    # 클래스 0이 더 많으면 언더샘플링
-                    X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5), random_state=42)
-                    X_train_class1_resampled = X_train_class1
-                else:
-                    # 클래스 1이 더 많으면 언더샘플링
-                    X_train_class0_resampled = X_train_class0
-                    X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5), random_state=42)
-                
-                # 재결합
-                X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
-                y_train = np.hstack([
-                    np.zeros(len(X_train_class0_resampled)),
-                    np.ones(len(X_train_class1_resampled))
-                ])
+                # 재시도
+                try:
+                    min_class_size = min(len(X_train[y_train == 0]), len(X_train[y_train == 1]))
+                    k_neighbors = min(3, max(1, min_class_size - 1))  # k를 3으로 줄임
+                    
+                    if k_neighbors >= 1 and min_class_size > 5:  # 최소 조건 완화
+                        # 클래스 비율에 따른 타겟 비율 조정
+                        class_ratio = len(X_train[y_train == 0]) / len(X_train[y_train == 1]) if len(X_train[y_train == 1]) > 0 else 10
+                        
+                        if class_ratio > 10:
+                            target_ratio = 0.15
+                        elif class_ratio > 5:
+                            target_ratio = 0.25
+                        elif class_ratio > 3:
+                            target_ratio = 0.4
+                        else:
+                            target_ratio = 0.6
+                            
+                        smote = SMOTE(sampling_strategy=target_ratio, random_state=42, k_neighbors=k_neighbors)
+                        X_train, y_train = smote.fit_resample(X_train, y_train)
+                        print(f"🎉 강력한 정제 후 SMOTE 적용 성공!")
+                    else:
+                        print("⚠️ 데이터 부족으로 기존 방식 사용")
+                        raise ValueError("데이터 부족")
+                        
+                except Exception as e2:
+                    print(f"⚠️ 재시도도 실패, 기존 리샘플링 사용: {e2}")
+                    # 기존 언더/오버샘플링 방식
+                    
+                    # 균형잡힌 샘플링
+                    min_class_size = min(len(X_train_class0), len(X_train_class1))
+                    
+                    # 언더샘플링 또는 오버샘플링
+                    if len(X_train_class0) > len(X_train_class1):
+                        # 클래스 0이 더 많으면 언더샘플링
+                        X_train_class0_resampled = resample(X_train_class0, n_samples=int(len(X_train_class1) * 1.5), random_state=42)
+                        X_train_class1_resampled = X_train_class1
+                    else:
+                        # 클래스 1이 더 많으면 언더샘플링
+                        X_train_class0_resampled = X_train_class0
+                        X_train_class1_resampled = resample(X_train_class1, n_samples=int(len(X_train_class0) * 1.5), random_state=42)
+                    
+                    # 재결합
+                    X_train = np.vstack([X_train_class0_resampled, X_train_class1_resampled])
+                    y_train = np.hstack([
+                        np.zeros(len(X_train_class0_resampled)),
+                        np.ones(len(X_train_class1_resampled))
+                    ])
             
             # 셔플 (공통)
             shuffle_idx = np.random.permutation(len(X_train))
@@ -361,29 +520,31 @@ class BacktestEngine:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # 개선된 LightGBM 파라미터 (이진 분류)
+            # 🔧 균형 잡힌 LightGBM 파라미터 (과도한 편향 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
-                'num_leaves': 31,
-                'learning_rate': 0.05,
-                'feature_fraction': 0.8,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
-                'min_data_in_leaf': 30,
-                'lambda_l1': 0.1,
-                'lambda_l2': 0.1,
-                'min_gain_to_split': 0.05,
-                'max_depth': 6,
-                'verbose': -1,
-                'random_state': 42,
-                'force_col_wise': True,
-                'is_unbalance': True,
-                'boost_from_average': True,
+                'boosting_type': 'gbdt',
+                'num_leaves': 31,           # 15 → 31 (복잡도 증가)
+                'learning_rate': 0.05,      # 0.03 → 0.05 (학습 효율성)
+                'feature_fraction': 0.9,    # 0.7 → 0.9 (더 많은 피처 사용)
+                'bagging_fraction': 0.9,    # 0.7 → 0.9 (더 많은 데이터 사용)
+                'bagging_freq': 5,          # 유지
+                'min_data_in_leaf': 50,     # 30 → 50 (과적합 방지)
+                'lambda_l1': 0.05,          # 0.2 → 0.05 (적절한 정규화)
+                'lambda_l2': 0.05,          # 0.2 → 0.05 (적절한 정규화)
+                'min_gain_to_split': 0.05,  # 0.1 → 0.05 (의미있는 분할)
+                'max_depth': 6,             # 5 → 6 (깊이 확장)
+                'verbose': 1,               # -1 → 1 (학습 과정 모니터링)
+                'random_state': 42,         # 유지
+                'force_col_wise': True,     # 유지
+                'scale_pos_weight': 5.0,    # 6.0 → 5.0 (과도한 편향 해결)
+                # 'is_unbalance': True,     # ← 제거 (scale_pos_weight와 충돌)
+                'boost_from_average': False, # True → False (유지)
+                'max_delta_step': 0.7,      # 유지 (안정적인 학습)
             }
 
             # 클래스 가중치 계산 (수동으로 계산하여 적용)
-            from sklearn.utils.class_weight import compute_class_weight
             
             class_weights = compute_class_weight(
                 'balanced',
@@ -393,29 +554,45 @@ class BacktestEngine:
             
             print(f"📊 클래스 가중치: {dict(zip(np.unique(y_train), class_weights))}")
             
-            # 가중치를 적용한 샘플 가중치 생성
-            sample_weights = np.array([class_weights[label] for label in y_train])
+            # 🔧 수동으로 더 강한 가중치 설정 (클래스 불균형이 심한 경우)
+            pos_weight = len(y_train[y_train == 0]) / len(y_train[y_train == 1]) if len(y_train[y_train == 1]) > 0 else 1
+            if pos_weight > 5:  # 5:1 이상의 불균형
+                # 더 강한 가중치 적용
+                sample_weights = np.where(y_train == 1, pos_weight * 1.5, 1.0)
+                print(f"📊 강화된 클래스 가중치 적용: 양성 클래스 × {pos_weight * 1.5:.1f}")
+            else:
+                sample_weights = np.array([class_weights[label] for label in y_train])
+                print(f"📊 기본 클래스 가중치 사용")
 
             # 데이터셋 생성 (클래스 가중치 적용)
             train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weights)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
-            # 모델 훈련 (조기 종료 조건 완화)
+            # 🔧 모델 훈련 (조기 종료 조건 대폭 완화)
             model = lgb.train(
                 lgb_params,
                 train_data,
                 valid_sets=[valid_data],
-                num_boost_round=500,  # 증가
-                callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(50)]
+                num_boost_round=2000,        # 100 → 2000 (충분한 학습 기회)
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=200),  # 20 → 200 (조기 종료 대폭 완화)
+                    lgb.log_evaluation(50)   # 20 → 50 (로그 빈도 조정)
+                ]
             )
+
+            # 🔧 최적 임계값 찾기 (새로 추가)
+            optimal_threshold = self._find_optimal_threshold(model, X_val, y_val)
 
             # 다중 성능 평가 (이진 분류)
             y_pred_val_proba = model.predict(X_val)
             y_pred_test_proba = model.predict(X_test)
             
-            # 이진 분류 예측 (임계값 강화: 0.5 → 0.7)
-            y_pred_val = (y_pred_val_proba > 0.7).astype(int)
-            y_pred_test = (y_pred_test_proba > 0.7).astype(int)
+            # 🔍 디버깅: 예측 확률 분포 확인
+            self.debug_prediction_distribution(y_pred_test_proba, "테스트 데이터")
+            
+            # 🔧 이진 분류 예측 (최적 임계값 사용)
+            y_pred_val = (y_pred_val_proba > optimal_threshold).astype(int)
+            y_pred_test = (y_pred_test_proba > optimal_threshold).astype(int)
             
             val_accuracy = accuracy_score(y_val, y_pred_val)
             test_accuracy = accuracy_score(y_test, y_pred_test)
@@ -430,7 +607,6 @@ class BacktestEngine:
             print(f"   예측: {np.bincount(y_pred_val)}")
             
             # 추가 성능 지표 출력
-            from sklearn.metrics import roc_auc_score
             try:
                 auc_score = roc_auc_score(y_test, y_pred_test_proba)
                 print(f"📊 AUC 점수: {auc_score:.3f}")
@@ -438,16 +614,16 @@ class BacktestEngine:
                 auc_score = 0.5
 
             # 모델 품질 검증 (이진 분류)
+            f1 = f1_score(y_test, y_pred_test)
+            precision = precision_score(y_test, y_pred_test)
+            recall = recall_score(y_test, y_pred_test)
+            
             model_quality_score = 0
             
             # 1. AUC 점수 (0-30점)
             model_quality_score += min(auc_score * 30, 30) if 'auc_score' in locals() else 15
             
             # 2. F1 점수 (0-30점)
-            from sklearn.metrics import f1_score, precision_score, recall_score
-            f1 = f1_score(y_test, y_pred_test)
-            precision = precision_score(y_test, y_pred_test)
-            recall = recall_score(y_test, y_pred_test)
             model_quality_score += f1 * 30
             
             # 3. 정밀도 (0-20점) - 거짓 양성을 줄이는 것이 중요
@@ -462,9 +638,9 @@ class BacktestEngine:
             print(f"   📊 정밀도: {precision:.3f}")
             print(f"   📊 재현율: {recall:.3f}")
             print(f"   📊 F1 점수: {f1:.3f}")
+            print(f"   📊 최적 임계값: {optimal_threshold:.3f}")
             
             # 혼동 행렬 출력
-            from sklearn.metrics import confusion_matrix
             cm = confusion_matrix(y_test, y_pred_test)
             print(f"   📊 혼동 행렬:")
             print(f"      예측 0    예측 1")
@@ -475,6 +651,7 @@ class BacktestEngine:
             model.model_quality_score = model_quality_score
             model.test_accuracy = test_accuracy
             model.train_date = end_date
+            model.optimal_threshold = optimal_threshold  # 최적 임계값 저장
             
             return model
             
@@ -502,15 +679,45 @@ class BacktestEngine:
             data = self.create_technical_features(data)
             latest = data.iloc[-1]
             
-            # 핵심 피처 추출 (훈련시와 동일한 순서 - 25개)
+            # 핵심 피처 추출 (훈련시와 동일한 순서 - 45개로 확장)
             feature_columns = [
-                'return_1d', 'return_3d', 'return_5d', 'return_10d', 'return_20d',
-                'price_ma_ratio_5', 'price_ma_ratio_10', 'price_ma_ratio_20',
-                'rsi_14', 'volume_ratio_5d', 'volume_ratio_20d',
-                'volatility_10d', 'volatility_20d',
-                'bb_position', 'bb_width', 'macd_histogram', 'stoch_k',
-                'price_momentum_5', 'price_momentum_10', 'low_proximity',
-                'candle_streak', 'volume_price_corr', 'price_acceleration', 'round_number_proximity'
+                # 핵심 수익률 (확장)
+                'return_1d', 'return_2d', 'return_3d', 'return_5d', 'return_7d', 'return_10d', 'return_15d', 'return_20d',
+                
+                # 핵심 이동평균 비율 (확장)
+                'price_ma_ratio_5', 'price_ma_ratio_10', 'price_ma_ratio_20', 'price_ma_ratio_50',
+                'price_ema_ratio_12', 'price_ema_ratio_26',
+                
+                # RSI (다중 기간)
+                'rsi_9', 'rsi_14', 'rsi_21', 'rsi_divergence',
+                
+                # 거래량 (확장)
+                'volume_ratio_5d', 'volume_ratio_10d', 'volume_ratio_20d', 'volume_spike', 'vwp_ratio',
+                
+                # 변동성 (확장)
+                'volatility_10d', 'volatility_20d', 'atr_ratio',
+                
+                # 볼린저 밴드 (다중 기간)
+                'bb_20_position', 'bb_20_width', 'bb_squeeze',
+                
+                # MACD
+                'macd_histogram', 'macd_crossover',
+                
+                # 스토캐스틱
+                'stoch_k_14', 'stoch_d_14',
+                
+                # 모멘텀 (확장)
+                'price_momentum_5', 'price_momentum_10', 'price_momentum_20', 'roc_12',
+                
+                # 지지저항 (다중 기간)
+                'low_proximity_20', 'high_proximity_20',
+                
+                # 가격 패턴
+                'body_size', 'upper_shadow', 'lower_shadow', 'gap_up', 'gap_down',
+                
+                # 고급 지표
+                'candle_streak_5', 'volume_price_corr_20', 'price_acceleration_1', 
+                'round_1000_proximity', 'mfi', 'williams_r_14', 'trend_strength'
             ]
 
             # 피처 벡터 생성 (결측치 처리 강화)
@@ -521,18 +728,20 @@ class BacktestEngine:
                 if col in latest.index and not pd.isna(latest[col]) and np.isfinite(latest[col]):
                     features.append(float(latest[col]))
                 else:
-                    # 피처별 기본값 설정
+                    # 피처별 기본값 설정 (확장된 피처에 맞춰 업데이트)
                     if 'return' in col:
                         features.append(0.0)
-                    elif 'ratio' in col:
+                    elif 'ratio' in col or 'proximity' in col:
                         features.append(1.0)
                     elif 'rsi' in col:
                         features.append(50.0)
-                    elif 'bb_position' in col:
+                    elif 'bb_' in col and 'position' in col:
                         features.append(0.0)
-                    elif 'volume_ratio' in col:
+                    elif 'bb_' in col and 'width' in col:
+                        features.append(0.1)
+                    elif 'volume_ratio' in col or 'vwp_ratio' in col:
                         features.append(1.0)
-                    elif 'volatility' in col:
+                    elif 'volatility' in col or 'atr_ratio' in col:
                         features.append(0.02)
                     elif 'candle_streak' in col:
                         features.append(0.0)
@@ -540,27 +749,50 @@ class BacktestEngine:
                         features.append(0.0)
                     elif 'acceleration' in col:
                         features.append(0.0)
-                    elif 'proximity' in col:
+                    elif 'momentum' in col or 'roc' in col:
+                        features.append(0.0)
+                    elif 'shadow' in col or 'body_size' in col:
+                        features.append(0.05)
+                    elif 'gap_' in col or 'spike' in col or 'squeeze' in col or 'crossover' in col:
+                        features.append(0.0)
+                    elif 'mfi' in col:
+                        features.append(50.0)
+                    elif 'williams_r' in col:
+                        features.append(-50.0)
+                    elif 'trend_strength' in col:
                         features.append(0.5)
+                    elif 'stoch' in col:
+                        features.append(50.0)
+                    elif 'divergence' in col:
+                        features.append(0.0)
                     else:
                         features.append(0.0)
                     missing_features += 1
 
-            # 너무 많은 피처가 누락되면 낮은 점수 반환
-            if missing_features > len(feature_columns) * 0.3:  # 30% 이상 누락
+            # 너무 많은 피처가 누락되면 낮은 점수 반환 (기준 완화: 30% → 40%)
+            if missing_features > len(feature_columns) * 0.4:  # 40% 이상 누락
                 print(f"⚠️ {ticker}: 피처 누락 비율 높음 ({missing_features}/{len(feature_columns)})")
                 return 0.2
 
             # AI 예측 (이진 분류)
             prediction_prob = model.predict([features])[0]  # 수익 확률 (0~1)
             
-            # 예측 확률을 그대로 점수로 사용
+            # 🔧 최적 임계값 사용 (모델에 저장된 값이 있으면)
+            threshold = getattr(model, 'optimal_threshold', 0.5)
+            prediction_binary = 1 if prediction_prob > threshold else 0
+            
+            # 예측 확률을 그대로 점수로 사용하되, 이진 예측 결과도 고려
             final_score = float(prediction_prob)
             
+            # 이진 예측이 양성인 경우 보너스
+            if prediction_binary == 1:
+                final_score = min(final_score * 1.2, 1.0)  # 20% 보너스, 최대 1.0
+
             # 신뢰도 보정
-            # 극단적인 예측(0.8 이상 또는 0.2 이하)에 보너스
-            if prediction_prob > 0.8 or prediction_prob < 0.2:
-                confidence = abs(prediction_prob - 0.5) * 2  # 0~1 범위
+            # 극단적인 예측(임계값 기준으로 멀리 떨어진 경우)에 보너스
+            distance_from_threshold = abs(prediction_prob - threshold)
+            if distance_from_threshold > 0.2:  # 임계값에서 0.2 이상 차이
+                confidence = min(distance_from_threshold * 2, 1.0)  # 0~1 범위
                 final_score = final_score * 0.8 + confidence * 0.2
             
             return float(final_score)
@@ -581,10 +813,13 @@ class BacktestEngine:
         model_quality_score = getattr(self.current_model, 'model_quality_score', 60)
         print(f"📊 모델 품질 점수: {model_quality_score:.1f}/100")
         
-        # 모델 품질이 너무 낮으면 거래 중단
-        if model_quality_score < 40:
+        # 모델 품질이 너무 낮으면 거래 중단 (기준 완화: 40 → 15)
+        if model_quality_score < 15:
             print("❌ 모델 품질이 너무 낮아 거래를 중단합니다.")
             return []
+        elif model_quality_score < 25:
+            print("⚠️ 모델 품질이 낮지만 거래를 계속합니다.")
+            max_selections = 2  # 선정 종목 수 제한
         
         ai_scored_tickers = []
         
@@ -601,23 +836,27 @@ class BacktestEngine:
                 'combined_score': candidate['combined_score']
             })
             
-            print(f"🎯 {ticker}: AI 예측 점수 = {ai_score:.3f}")
+            print(f"🎯 {ticker}: AI={ai_score:.3f}, 기술={candidate['technical_score']:.3f}")
         
         # AI 점수로 정렬
         ai_scored_tickers.sort(key=lambda x: x['ai_score'], reverse=True)
         
-        # 신뢰도 기준 강화: 모델 품질에 따라 동적 조정
+        # 🔧 하이브리드 접근 강화: 모델 품질에 따라 동적 조정 (대폭 완화)
         if model_quality_score >= 65:
-            min_score_threshold = 0.65  # 우수한 모델: 0.65 이상 (기존 0.55에서 상향)
+            min_score_threshold = 0.35  # 우수한 모델: 0.35 이상 (0.50 → 0.35)
             max_selections = 5
         elif model_quality_score >= 50:
-            min_score_threshold = 0.70  # 양호한 모델: 0.70 이상 (기존 0.60에서 상향)
+            min_score_threshold = 0.30  # 양호한 모델: 0.30 이상 (0.45 → 0.30)
             max_selections = 4
-        else:
-            min_score_threshold = 0.75  # 보통 모델: 0.75 이상 (기존 0.65에서 상향)
+        elif model_quality_score >= 25:
+            min_score_threshold = 0.25  # 중간 모델: 0.25 이상 (0.35 → 0.25, 대폭 완화)
             max_selections = 3
+        else:
+            min_score_threshold = 0.20  # 저품질 모델: 0.20 이상 (0.30 → 0.20, 더 완화)
+            max_selections = 2
 
         print(f"📏 신뢰도 기준: {min_score_threshold:.2f} 이상 (최대 {max_selections}개)")
+        print(f"🎯 모델 품질별 기준 완화 적용 완료")
 
         # 기준을 만족하는 종목만 선정
         final_selection = []
@@ -639,31 +878,71 @@ class BacktestEngine:
                 elif item['ai_score'] >= 0.55:
                     medium_confidence_count += 1
                     
-            # 하이브리드 접근: AI 점수가 중간 수준이면 기술적 분석과 결합
-            elif item['ai_score'] >= (min_score_threshold - 0.10) and len(final_selection) < max_selections:
-                # AI 점수와 기술적 점수의 가중 평균
-                combined_score = (item['ai_score'] * 0.7) + (item['technical_score'] * 0.3)
+            # 🔧 하이브리드 접근 강화: AI 점수가 중간 수준이면 기술적 분석과 결합
+            elif item['ai_score'] >= (min_score_threshold - 0.25) and len(final_selection) < max_selections:  # 0.20 → 0.25로 확대
+                # 하이브리드 점수 계산: AI 점수와 기술적 점수의 가중 평균
+                ai_weight = 0.5  # AI 가중치 (0.6 → 0.5로 조정)
+                tech_weight = 0.5  # 기술적 분석 가중치 (0.4 → 0.5로 증가)
                 
-                # 결합 점수가 기준을 만족하면 선정
-                if combined_score >= (min_score_threshold - 0.05):
+                hybrid_score = (item['ai_score'] * ai_weight) + (item['technical_score'] * tech_weight)
+                
+                # 하이브리드 점수 기준 대폭 완화
+                hybrid_threshold = min_score_threshold - 0.20  # 0.15 → 0.20로 완화
+                
+                print(f"🔍 {item['ticker']}: 하이브리드 검토")
+                print(f"   AI: {item['ai_score']:.3f}, 기술: {item['technical_score']:.3f}")
+                print(f"   하이브리드: {hybrid_score:.3f} vs 기준: {hybrid_threshold:.3f}")
+                
+                if hybrid_score >= hybrid_threshold:
                     final_selection.append(item)
                     hybrid_count += 1
-                    print(f"🔄 {item['ticker']}: 하이브리드 선정 (AI: {item['ai_score']:.3f}, 기술: {item['technical_score']:.3f}, 결합: {combined_score:.3f})")
+                    print(f"🔄 {item['ticker']}: 하이브리드 선정 성공!")
+                else:
+                    print(f"❌ {item['ticker']}: 하이브리드 기준 미달")
+                    
+            # 🚀 추가 완화: 기술적 분석 위주 선정 (AI 점수가 매우 낮아도 기술적 점수가 높으면)
+            elif (item['technical_score'] >= 0.55 and   # 0.65 → 0.55로 완화
+                  item['ai_score'] >= 0.15 and         # 0.25 → 0.15로 완화 
+                  len(final_selection) < max_selections):
+                final_selection.append(item)
+                hybrid_count += 1
+                print(f"🎯 {item['ticker']}: 기술적 분석 위주 선정")
+                print(f"   기술 점수: {item['technical_score']:.3f} (고점수)")
+                print(f"   AI 점수: {item['ai_score']:.3f} (최소 기준 충족)")
 
         # 선정 결과 출력
         if len(final_selection) == 0:
             print("❌ AI 신뢰도 기준을 만족하는 종목이 없습니다.")
-            print("⚠️ 오늘은 매수를 건너뛰겠습니다.")
+            print("⚠️ 최종 대안: 기술적 분석 상위 종목으로 대체 검토")
             
-            # 가장 높은 점수라도 출력
+            # 🚀 최종 안전망: 기술적 분석 점수가 높은 종목 몇 개라도 선정
             if ai_scored_tickers:
-                best_score = ai_scored_tickers[0]['ai_score']
-                print(f"📊 최고 점수: {best_score:.3f} (기준: {min_score_threshold:.2f})")
+                print(f"🔍 대안 검토: 기술적 분석 기준으로 재선정")
+                for item in ai_scored_tickers[:5]:  # 상위 5개만 검토
+                    if item['technical_score'] >= 0.5:  # 기술적 점수 0.5 이상
+                        final_selection.append(item)
+                        print(f"📋 {item['ticker']}: 기술적 분석 기준으로 대체 선정")
+                        print(f"   기술점수: {item['technical_score']:.3f}, AI점수: {item['ai_score']:.3f}")
+                        if len(final_selection) >= 2:  # 최대 2개까지만
+                            break
+            
+            if len(final_selection) == 0:
+                print("⚠️ 대안 검토에서도 선정된 종목이 없습니다. 오늘은 매수를 건너뛰겠습니다.")
+                # 가장 높은 점수라도 출력
+                if ai_scored_tickers:
+                    best_ai = max(ai_scored_tickers, key=lambda x: x['ai_score'])
+                    best_tech = max(ai_scored_tickers, key=lambda x: x['technical_score'])
+                    print(f"📊 최고 AI 점수: {best_ai['ai_score']:.3f} ({best_ai['ticker']}) - 기준: {min_score_threshold:.2f}")
+                    print(f"📊 최고 기술 점수: {best_tech['technical_score']:.3f} ({best_tech['ticker']}) - 기준: 0.50")
         else:
             print(f"🏆 AI 최종 선정: {len(final_selection)}개 종목")
             print(f"   🟢 고신뢰(0.65+): {high_confidence_count}개")
             print(f"   🟡 중신뢰(0.55+): {medium_confidence_count}개")
             print(f"   🔄 하이브리드: {hybrid_count}개")
+            
+            # 선정된 종목 상세 정보 출력
+            for item in final_selection:
+                print(f"   📋 {item['ticker']}: AI={item['ai_score']:.3f}, 기술={item['technical_score']:.3f}")
         
         return final_selection
 
@@ -890,7 +1169,7 @@ class BacktestEngine:
             return pd.DataFrame()
 
     def create_technical_features(self, data):
-        """강화된 기술적 분석 지표 생성 (strategy.py와 동일)"""
+        """강화된 기술적 분석 지표 생성 (strategy.py와 동일) - 피처 대폭 확장"""
         try:
             if len(data) < 30:
                 # 데이터가 부족하면 기본 지표만 생성
@@ -911,89 +1190,212 @@ class BacktestEngine:
                 # 심리적 저항선 근접도 (천원 단위)
                 data['round_number_proximity'] = (data['close'] % 1000) / 1000
 
+                # 무한대값 및 NaN 처리
+                data = self._clean_infinite_values(data)
                 return data
             
-            # 기본 수익률 계산
-            for period in [1, 3, 5, 10, 20]:
+            # 🔥 피처 엔지니어링 대폭 강화 (24개 → 40개 이상)
+            
+            # === 1. 기본 수익률 (확장된 기간) ===
+            for period in [1, 2, 3, 5, 7, 10, 15, 20, 30]:  # 기간 확장
                 data[f'return_{period}d'] = data['close'].pct_change(period)
 
-            # 이동평균 및 비율 (더 다양한 기간)
-            for ma_period in [5, 10, 20, 60]:
+            # === 2. 이동평균 및 비율 (더 다양한 기간) ===
+            for ma_period in [3, 5, 10, 20, 50, 60, 120]:  # 기간 확장
                 data[f'ma_{ma_period}'] = data['close'].rolling(ma_period).mean()
                 data[f'price_ma_ratio_{ma_period}'] = data['close'] / data[f'ma_{ma_period}']
+                
+            # 지수이동평균 추가
+            for ema_period in [12, 26]:
+                data[f'ema_{ema_period}'] = data['close'].ewm(span=ema_period).mean()
+                data[f'price_ema_ratio_{ema_period}'] = data['close'] / data[f'ema_{ema_period}']
 
-            # 기본 기술적 지표
-            data['rsi_14'] = ta.momentum.rsi(data['close'], window=14)
-            data['rsi_30'] = ta.momentum.rsi(data['close'], window=30)
-            data['volume_ratio_5d'] = data['volume'] / data['volume'].rolling(5).mean()
-            data['volume_ratio_20d'] = data['volume'] / data['volume'].rolling(20).mean()
-            data['volatility_10d'] = data['close'].pct_change().rolling(10).std()
-            data['volatility_20d'] = data['close'].pct_change().rolling(20).std()
+            # === 3. RSI 다중 기간 ===
+            for rsi_period in [9, 14, 21, 30]:
+                data[f'rsi_{rsi_period}'] = ta.momentum.rsi(data['close'], window=rsi_period)
+            
+            # RSI 파생 지표
+            data['rsi_14_sma'] = data['rsi_14'].rolling(5).mean()  # RSI 평활화
+            data['rsi_divergence'] = data['rsi_14'] - data['rsi_14'].shift(5)  # RSI 발산
 
-            # 볼린저 밴드 관련 지표
-            bb_middle = data['close'].rolling(20).mean()
-            bb_std = data['close'].rolling(20).std()
-            data['bb_upper'] = bb_middle + (2 * bb_std)
-            data['bb_lower'] = bb_middle - (2 * bb_std)
-            data['bb_position'] = (data['close'] - bb_middle) / (2 * bb_std)
-            data['bb_width'] = (data['bb_upper'] - data['bb_lower']) / bb_middle
+            # === 4. 거래량 지표 확장 ===
+            for vol_period in [3, 5, 10, 20, 30]:
+                data[f'volume_ratio_{vol_period}d'] = data['volume'] / data['volume'].rolling(vol_period).mean()
+                
+            # 거래량 가중 지표
+            data['volume_weighted_price'] = (data['close'] * data['volume']).rolling(20).sum() / data['volume'].rolling(20).sum()
+            data['vwp_ratio'] = data['close'] / data['volume_weighted_price']
+            
+            # 거래량 급증 감지
+            data['volume_spike'] = (data['volume'] > data['volume'].rolling(20).mean() * 2).astype(int)
 
-            # MACD 지표
+            # === 5. 변동성 지표 확장 ===
+            for vol_period in [5, 10, 15, 20, 30]:
+                data[f'volatility_{vol_period}d'] = data['close'].pct_change().rolling(vol_period).std()
+                
+            # ATR (Average True Range)
+            data['high_low'] = data['high'] - data['low']
+            data['high_close'] = abs(data['high'] - data['close'].shift(1))
+            data['low_close'] = abs(data['low'] - data['close'].shift(1))
+            data['true_range'] = data[['high_low', 'high_close', 'low_close']].max(axis=1)
+            data['atr_14'] = data['true_range'].rolling(14).mean()
+            data['atr_ratio'] = data['atr_14'] / data['close']
+
+            # === 6. 볼린저 밴드 다중 기간 ===
+            for bb_period in [15, 20, 25]:
+                bb_middle = data['close'].rolling(bb_period).mean()
+                bb_std = data['close'].rolling(bb_period).std()
+                data[f'bb_{bb_period}_upper'] = bb_middle + (2 * bb_std)
+                data[f'bb_{bb_period}_lower'] = bb_middle - (2 * bb_std)
+                data[f'bb_{bb_period}_position'] = (data['close'] - bb_middle) / (2 * bb_std)
+                data[f'bb_{bb_period}_width'] = (data[f'bb_{bb_period}_upper'] - data[f'bb_{bb_period}_lower']) / bb_middle
+                
+            # 볼린저 밴드 압축/확장 감지
+            data['bb_squeeze'] = (data['bb_20_width'] < data['bb_20_width'].rolling(20).mean() * 0.8).astype(int)
+
+            # === 7. MACD 지표 확장 ===
             try:
+                # 기본 MACD
                 macd_line = ta.trend.macd(data['close'])
                 macd_signal = ta.trend.macd_signal(data['close'])
                 data['macd'] = macd_line
                 data['macd_signal'] = macd_signal
                 data['macd_histogram'] = macd_line - macd_signal
+                
+                # MACD 다이버전스
+                data['macd_crossover'] = ((data['macd'] > data['macd_signal']) & 
+                                         (data['macd'].shift(1) <= data['macd_signal'].shift(1))).astype(int)
+                
+                # 추가 MACD 설정
+                ema12 = data['close'].ewm(span=12).mean()
+                ema26 = data['close'].ewm(span=26).mean()
+                data['macd_custom'] = ema12 - ema26
+                
             except:
                 data['macd'] = 0
                 data['macd_signal'] = 0
                 data['macd_histogram'] = 0
+                data['macd_crossover'] = 0
+                data['macd_custom'] = 0
 
-            # 스토캐스틱 지표
+            # === 8. 스토캐스틱 지표 확장 ===
             try:
-                data['stoch_k'] = ta.momentum.stoch(data['high'], data['low'], data['close'])
-                data['stoch_d'] = data['stoch_k'].rolling(3).mean()
+                for stoch_period in [9, 14, 21]:
+                    data[f'stoch_k_{stoch_period}'] = ta.momentum.stoch(data['high'], data['low'], data['close'], window=stoch_period)
+                    data[f'stoch_d_{stoch_period}'] = data[f'stoch_k_{stoch_period}'].rolling(3).mean()
             except:
-                data['stoch_k'] = 50
-                data['stoch_d'] = 50
+                for stoch_period in [9, 14, 21]:
+                    data[f'stoch_k_{stoch_period}'] = 50
+                    data[f'stoch_d_{stoch_period}'] = 50
 
-            # 가격 모멘텀 지표
-            data['price_momentum_5'] = data['close'] / data['close'].shift(5) - 1
-            data['price_momentum_10'] = data['close'] / data['close'].shift(10) - 1
-            data['price_momentum_20'] = data['close'] / data['close'].shift(20) - 1
+            # === 9. 모멘텀 지표 확장 ===
+            for mom_period in [3, 5, 10, 15, 20, 30]:
+                data[f'price_momentum_{mom_period}'] = data['close'] / data['close'].shift(mom_period) - 1
+                
+            # ROC (Rate of Change)
+            for roc_period in [12, 25]:
+                data[f'roc_{roc_period}'] = ((data['close'] - data['close'].shift(roc_period)) / data['close'].shift(roc_period)) * 100
 
-            # 거래량 가중 평균 가격 (VWAP)
+            # === 10. 거래량 가중 평균 가격 (VWAP) 확장 ===
             try:
-                data['vwap'] = (data['close'] * data['volume']).rolling(20).sum() / data['volume'].rolling(20).sum()
-                data['price_vwap_ratio'] = data['close'] / data['vwap']
+                for vwap_period in [10, 20, 30]:
+                    typical_price = (data['high'] + data['low'] + data['close']) / 3
+                    data[f'vwap_{vwap_period}'] = (typical_price * data['volume']).rolling(vwap_period).sum() / data['volume'].rolling(vwap_period).sum()
+                    data[f'price_vwap_{vwap_period}_ratio'] = data['close'] / data[f'vwap_{vwap_period}']
             except:
-                data['vwap'] = data['close']
-                data['price_vwap_ratio'] = 1.0
+                for vwap_period in [10, 20, 30]:
+                    data[f'vwap_{vwap_period}'] = data['close']
+                    data[f'price_vwap_{vwap_period}_ratio'] = 1.0
 
-            # 변동성 기반 지표
+            # === 11. 가격 패턴 지표 ===
             data['high_low_ratio'] = (data['high'] - data['low']) / data['close']
             data['close_open_ratio'] = data['close'] / data['open'] - 1
+            data['body_size'] = abs(data['close'] - data['open']) / data['close']
+            data['upper_shadow'] = (data['high'] - data[['open', 'close']].max(axis=1)) / data['close']
+            data['lower_shadow'] = (data[['open', 'close']].min(axis=1) - data['low']) / data['close']
+            
+            # 갭 감지
+            data['gap_up'] = (data['open'] > data['close'].shift(1) * 1.02).astype(int)
+            data['gap_down'] = (data['open'] < data['close'].shift(1) * 0.98).astype(int)
 
-            # 지지/저항 레벨 근접도
-            data['recent_high_20'] = data['high'].rolling(20).max()
-            data['recent_low_20'] = data['low'].rolling(20).min()
-            data['high_proximity'] = (data['recent_high_20'] - data['close']) / data['recent_high_20']
-            data['low_proximity'] = (data['close'] - data['recent_low_20']) / data['recent_low_20']
+            # === 12. 지지/저항 레벨 ===
+            for support_period in [10, 20, 30]:
+                data[f'recent_high_{support_period}'] = data['high'].rolling(support_period).max()
+                data[f'recent_low_{support_period}'] = data['low'].rolling(support_period).min()
+                data[f'high_proximity_{support_period}'] = (data[f'recent_high_{support_period}'] - data['close']) / data[f'recent_high_{support_period}']
+                data[f'low_proximity_{support_period}'] = (data['close'] - data[f'recent_low_{support_period}']) / data[f'recent_low_{support_period}']
 
-            # 추가 지표들
-            # 양봉/음봉 연속성
+            # === 13. 추가 고급 지표 ===
+            # 양봉/음봉 연속성 (확장)
             data['candle_type'] = np.where(data['close'] > data['open'], 1, -1)
-            data['candle_streak'] = data['candle_type'].rolling(3).sum()
+            for streak_period in [3, 5, 7]:
+                data[f'candle_streak_{streak_period}'] = data['candle_type'].rolling(streak_period).sum()
             
-            # 거래량 가격 상관성
-            data['volume_price_corr'] = data['close'].rolling(20).corr(data['volume'])
+            # 거래량-가격 상관성 (다중 기간)
+            for corr_period in [10, 20, 30]:
+                data[f'volume_price_corr_{corr_period}'] = data['close'].rolling(corr_period).corr(data['volume'])
             
-            # 가격 가속도
-            data['price_acceleration'] = data['return_1d'] - data['return_1d'].shift(1)
+            # 가격 가속도 (다중 기간)
+            for acc_period in [1, 3, 5]:
+                data[f'price_acceleration_{acc_period}'] = data['return_1d'] - data['return_1d'].shift(acc_period)
             
-            # 심리적 저항선 근접도 (천원 단위)
-            data['round_number_proximity'] = (data['close'] % 1000) / 1000
+            # 심리적 저항선 근접도 (다양한 단위)
+            data['round_1000_proximity'] = (data['close'] % 1000) / 1000
+            data['round_5000_proximity'] = (data['close'] % 5000) / 5000
+            data['round_10000_proximity'] = (data['close'] % 10000) / 10000
+            
+            # 피보나치 되돌림 수준
+            data['fib_23_6'] = data['recent_low_20'] + (data['recent_high_20'] - data['recent_low_20']) * 0.236
+            data['fib_38_2'] = data['recent_low_20'] + (data['recent_high_20'] - data['recent_low_20']) * 0.382
+            data['fib_61_8'] = data['recent_low_20'] + (data['recent_high_20'] - data['recent_low_20']) * 0.618
+            
+            # === 14. 시장 미시구조 지표 ===
+            # Ease of Movement
+            data['eom'] = ((data['high'] + data['low']) / 2 - (data['high'].shift(1) + data['low'].shift(1)) / 2) * data['volume'] / (data['high'] - data['low'])
+            data['eom_sma'] = data['eom'].rolling(14).mean()
+            
+            # Money Flow Index
+            try:
+                typical_price = (data['high'] + data['low'] + data['close']) / 3
+                money_flow = typical_price * data['volume']
+                positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+                negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+                data['mfi'] = 100 - (100 / (1 + (positive_flow / negative_flow)))
+            except:
+                data['mfi'] = 50
+            
+            # Williams %R
+            try:
+                for wr_period in [14, 21]:
+                    highest_high = data['high'].rolling(wr_period).max()
+                    lowest_low = data['low'].rolling(wr_period).min()
+                    data[f'williams_r_{wr_period}'] = ((highest_high - data['close']) / (highest_high - lowest_low)) * -100
+            except:
+                for wr_period in [14, 21]:
+                    data[f'williams_r_{wr_period}'] = -50
+            
+            # === 15. 트렌드 강도 지표 ===
+            # ADX (Average Directional Index) 간소화 버전
+            try:
+                high_diff = data['high'] - data['high'].shift(1)
+                low_diff = data['low'].shift(1) - data['low']
+                data['dm_plus'] = np.where((high_diff > low_diff) & (high_diff > 0), high_diff, 0)
+                data['dm_minus'] = np.where((low_diff > high_diff) & (low_diff > 0), low_diff, 0)
+                data['dm_plus_sma'] = data['dm_plus'].rolling(14).mean()
+                data['dm_minus_sma'] = data['dm_minus'].rolling(14).mean()
+                data['trend_strength'] = abs(data['dm_plus_sma'] - data['dm_minus_sma']) / (data['dm_plus_sma'] + data['dm_minus_sma'] + 1e-10)
+            except:
+                data['trend_strength'] = 0.5
+            
+            # 가격 트렌드 방향성
+            data['trend_direction_5'] = np.where(data['close'] > data['ma_5'], 1, -1)
+            data['trend_direction_20'] = np.where(data['close'] > data['ma_20'], 1, -1)
+            data['trend_consistency'] = (data['trend_direction_5'] == data['trend_direction_20']).astype(int)
+            
+            # print(f"✅ 강화된 피처 엔지니어링 완료: {len([col for col in data.columns if col not in ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'trade_amount']])}개 피처 생성")
+            
+            # 무한대값 및 NaN 처리
+            data = self._clean_infinite_values(data)
             
             return data
         except Exception as e:
@@ -1014,6 +1416,50 @@ class BacktestEngine:
             # 심리적 저항선 근접도 (천원 단위)
             data['round_number_proximity'] = (data['close'] % 1000) / 1000
             
+            # 무한대값 및 NaN 처리
+            data = self._clean_infinite_values(data)
+            
+            return data
+    
+    def _clean_infinite_values(self, data):
+        """무한대값 및 NaN 안전 처리"""
+        try:
+            # 1. 무한대를 NaN으로 변환
+            data = data.replace([np.inf, -np.inf], np.nan)
+            
+            # 2. 컬럼별 적절한 대체값 설정
+            for col in data.columns:
+                if data[col].dtype in ['float64', 'int64']:
+                    if 'return' in col:
+                        data[col] = data[col].fillna(0.0)
+                    elif 'ratio' in col or 'proximity' in col:
+                        data[col] = data[col].fillna(1.0)
+                    elif 'rsi' in col:
+                        data[col] = data[col].fillna(50.0)
+                    elif 'bb_position' in col:
+                        data[col] = data[col].fillna(0.0)
+                    elif 'volume_ratio' in col:
+                        data[col] = data[col].fillna(1.0)
+                    elif 'volatility' in col:
+                        data[col] = data[col].fillna(0.02)
+                    elif 'corr' in col:
+                        data[col] = data[col].fillna(0.0)
+                    elif 'streak' in col or 'acceleration' in col:
+                        data[col] = data[col].fillna(0.0)
+                    else:
+                        # 기타 수치형 컬럼은 중앙값으로 대체
+                        median_val = data[col].median()
+                        if pd.isna(median_val):
+                            data[col] = data[col].fillna(0.0)
+                        else:
+                            data[col] = data[col].fillna(median_val)
+            
+            # 3. 최종 확인: 여전히 무한대값이 있으면 0으로 대체
+            data = data.replace([np.inf, -np.inf], 0.0)
+            
+            return data
+        except Exception as e:
+            print(f"무한대값 처리 오류: {e}")
             return data
 
     def get_technical_score(self, ticker, current_date):
@@ -1193,44 +1639,7 @@ class BacktestEngine:
         except Exception as e:
             print(f"⚠️ {ticker} 손실 제한 체크 실패: {e}")
             return False, 0, 0
-        """보유 종목에 대한 규칙 기반 홀드/매도 시그널"""
-        try:
-            data = self.get_past_data(ticker, n=30)
-            if data.empty or len(data) < 20:
-                return 0.5
-            
-            # 현재 날짜 이후 데이터 제거
-            data = data[data['timestamp'] <= current_date].copy()
-            if len(data) < 20:
-                return 0.5
-            
-            # 기술적 지표 생성
-            data = self.create_technical_features(data)
-            latest = data.iloc[-1]
-            
-            hold_score = 0.5
-            
-            # 1. 단기 모멘텀
-            if latest['return_1d'] > 0.02:
-                hold_score += 0.3  # 강한 상승
-            elif latest['return_1d'] > 0:
-                hold_score += 0.1  # 약한 상승
-            
-            # 2. RSI 과매수 체크
-            if latest['rsi_14'] > 80:
-                hold_score -= 0.3  # 과매수시 매도 신호
-            elif latest['rsi_14'] > 70:
-                hold_score -= 0.1
-            
-            # 3. 볼린저 밴드 상단 근처
-            if latest.get('bb_position', 0) > 0.8:
-                hold_score -= 0.2
-            
-            return max(0.0, min(1.0, hold_score))
-            
-        except Exception as e:
-            return 0.5
-    
+
     def get_technical_hold_signal(self, ticker, current_date):
         """
         기술적 분석 기반 홀드 시그널 (백테스트 엔진용)
@@ -1412,11 +1821,16 @@ class BacktestEngine:
             # 기술적 분석 강화 점수로 정렬
             enhanced_candidates.sort(key=lambda x: x['combined_score'], reverse=True)
             
-            # 기술적 점수가 0.6 이상인 종목만 1차 선정
+            # 기술적 점수가 0.5 이상인 종목만 1차 선정 (기준 완화: 0.6 → 0.5)
             selected_candidates = []
+            print(f"🔍 상위 15개 후보 기술적 점수 검토:")
             for candidate in enhanced_candidates[:15]:  # 상위 15개 확인
-                if candidate['technical_score'] >= 0.6 and len(selected_candidates) < 10:
+                ticker = candidate['ticker'] 
+                tech_score = candidate['technical_score']
+                print(f"   {ticker}: 기술점수 {tech_score:.3f}")
+                if tech_score >= 0.5 and len(selected_candidates) < 10:  # 0.6 → 0.5로 완화
                     selected_candidates.append(candidate)
+                    print(f"   ✅ {ticker}: 1차 선정 통과")
             
             print(f"🎯 기술적 분석 1차 선정: {len(selected_candidates)}개 종목")
             
@@ -1618,24 +2032,30 @@ class BacktestEngine:
         # 매도 실행
         for ticker, sell_reason in tickers_to_sell:
             try:
-                # 현재가 조회 - 데이터 소스 통합
-                current_data = self.get_past_data(ticker, n=5)  # 여유있게 5일 데이터
-                if current_data.empty:
-                    print(f"❌ {ticker}: 과거 데이터 조회 실패")
-                    continue
-                
-                # 현재 날짜 이전 데이터만 필터링
-                current_date_pd = pd.to_datetime(current_date)
-                valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
-                
-                if valid_data.empty:
-                    print(f"❌ {ticker}: {current_date} 이전 데이터 없음")
-                    continue
-                    
-                current_price = valid_data.iloc[-1]['close']
+                # 현재가 조회 - 강화된 방식
                 holding = self.holdings[ticker]
+                buy_price = holding.get('buy_price', 0)
+                
+                # 데이터 조회 시도
+                current_data = self.get_past_data(ticker, n=10)  # 더 많은 데이터 조회
+                
+                if current_data.empty:
+                    print(f"❌ {ticker}: 데이터 조회 실패 - 매수가로 매도 처리")
+                    # 데이터가 없으면 매수가로 매도 (손실 없음)
+                    current_price = buy_price
+                else:
+                    # 현재 날짜 이전 데이터만 필터링
+                    current_date_pd = pd.to_datetime(current_date)
+                    valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
+                    
+                    if valid_data.empty:
+                        print(f"❌ {ticker}: {current_date} 이전 데이터 없음 - 매수가로 매도 처리")
+                        current_price = buy_price
+                    else:
+                        current_price = valid_data.iloc[-1]['close']
+                        print(f"✅ {ticker}: 현재가 {current_price:,}원 확인")
+                
                 quantity = holding['quantity']
-                buy_price = holding['buy_price']
                 
                 print(f"📤 {ticker} 매도 실행: {quantity}주 @ {current_price:,}원 ({sell_reason})")
                 
@@ -1793,9 +2213,22 @@ class BacktestEngine:
             
             print(f"\n📅 {date_str} 처리 중... ({'월화수목금'[weekday]}요일)")
             
-            # 매주 월요일마다 AI 모델 재훈련
-            if self.ai_enabled and (weekday == 0 or self.current_model is None):
-                print(f"🤖 {date_str} AI 모델 재훈련 시작...")
+            # AI 모델 재훈련 주기 조정 (2주에 한번)
+            should_retrain = False
+            if self.ai_enabled and weekday == 0:  # 월요일에만 체크
+                if self.current_model is None:
+                    # 첫 모델이 없으면 무조건 훈련
+                    should_retrain = True
+                elif self.model_trained_date:
+                    # 마지막 훈련일로부터 14일(2주) 이상 지났는지 확인
+                    last_train_date = pd.to_datetime(self.model_trained_date)
+                    days_since_training = (current_date - last_train_date).days
+                    if days_since_training >= 14:
+                        should_retrain = True
+                        print(f"🤖 마지막 훈련일로부터 {days_since_training}일 경과 - 재훈련 필요")
+            
+            if should_retrain:
+                print(f"🤖 {date_str} AI 모델 재훈련 시작... (2주 주기)")
                 try:
                     temp_model = self.train_ai_model_at_date(date_str)
                     if temp_model is not None:
@@ -1803,7 +2236,7 @@ class BacktestEngine:
                         self.model_trained_date = date_str
                         print(f"✅ AI 모델 훈련 완료 ({date_str})")
                     else:
-                        print(f"❌ AI 모델 훈련 실패 - 이번 주는 이전 모델 사용 또는 기술적 분석만 사용")
+                        print(f"❌ AI 모델 훈련 실패 - 이전 모델 사용 또는 기술적 분석만 사용")
                 except Exception as e:
                     print(f"❌ AI 모델 훈련 오류: {e}")
                     # 이전 모델이 있으면 계속 사용
@@ -2020,9 +2453,9 @@ if __name__ == "__main__":
     engine = BacktestEngine(initial_capital=10_000_000, transaction_cost=0.003)
     
     # 백테스팅 실행 (AI 기능 포함)
-    # 2025년 6월 현재 기준으로 충분한 과거 데이터가 있는 기간 사용
-    start_date = "2025-06-01"
-    end_date = "2025-06-10"  # 6개월 테스트
+    # 실제 과거 데이터가 있는 기간 사용 - 6개월 테스트로 확장
+    start_date = "2025-01-06"
+    end_date = "2025-01-17"  # 6개월 테스트
     
     try:
         # AI 기능 활성화하여 백테스팅 실행

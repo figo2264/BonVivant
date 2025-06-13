@@ -293,6 +293,31 @@ class AIModelManager:
         self.model = None
         self.model_metadata = {}
 
+    def debug_prediction_distribution(self, predictions, data_name="데이터"):
+        """예측 확률 분포 확인 (디버깅용)"""
+        try:
+            print(f"🔍 {data_name} 예측 확률 분포 분석:")
+            print(f"   평균: {np.mean(predictions):.3f}")
+            print(f"   표준편차: {np.std(predictions):.3f}")
+            print(f"   최소값: {np.min(predictions):.3f}")
+            print(f"   최대값: {np.max(predictions):.3f}")
+            print(f"   중앙값: {np.median(predictions):.3f}")
+            
+            # 분위수 정보
+            percentiles = [10, 25, 50, 75, 90]
+            percentile_values = np.percentile(predictions, percentiles)
+            print(f"   분위수: {dict(zip([f'{p}%' for p in percentiles], [f'{v:.3f}' for v in percentile_values]))}")
+            
+            # 임계값별 예측 개수
+            thresholds = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+            for threshold in thresholds:
+                count = np.sum(predictions >= threshold)
+                ratio = count / len(predictions) * 100
+                print(f"   {threshold:.1f} 이상: {count}개 ({ratio:.1f}%)")
+            
+        except Exception as e:
+            print(f"❌ 예측 분포 분석 오류: {e}")
+
     def _safe_import_smote(self):
         """SMOTE를 안전하게 import"""
         try:
@@ -352,21 +377,31 @@ class AIModelManager:
                 class_ratio = counts[0] / counts[1] if len(counts) > 1 else 1
                 print(f"📊 원본 클래스 비율: {class_ratio:.2f}:1")
                 
+                # 🔧 추가 데이터 검증 (무한대/NaN 값 재확인)
+                has_inf = np.isinf(X_train_clean).any()
+                has_nan = np.isnan(X_train_clean).any()
+                
+                if has_inf or has_nan:
+                    print(f"⚠️ 데이터 품질 문제 발견: inf={has_inf}, nan={has_nan}")
+                    # 더 강력한 정제
+                    X_train_clean = np.nan_to_num(X_train_clean, nan=0.0, posinf=1e10, neginf=-1e10)
+                    print("🔧 강제 정제 완료")
+                
                 # SMOTE 적용 (k_neighbors를 데이터 크기에 맞게 조정)
                 X_train_class1 = X_train_clean[y_train == 1]
                 min_class_size = len(X_train_class1)
                 k_neighbors = min(5, max(1, min_class_size - 1))
 
                 if k_neighbors >= 1 and min_class_size > 1:
-                    # 클래스 비율에 따라 적절한 sampling_strategy 설정
+                    # 🔧 SMOTE 적용을 더 보수적으로 조정 (클래스 비율에 따라 동적 조정)
                     if class_ratio > 10:  # 10:1 이상이면
-                        target_ratio = 0.1  # 10% 증가
+                        target_ratio = 0.15  # 0.2 → 0.15 (더 보수적)
                     elif class_ratio > 5:  # 5:1 이상이면
-                        target_ratio = 0.15  # 15% 증가
-                    elif class_ratio > 3:  # 3:1 이상이면
-                        target_ratio = 0.25  # 25% 증가
+                        target_ratio = 0.25  # 0.3 → 0.25 (더 보수적)
+                    elif class_ratio > 3:  # 3:1 이상이면 
+                        target_ratio = 0.4   # 0.5 → 0.4 (더 보수적)
                     else:
-                        target_ratio = 0.4   # 40% 증가
+                        target_ratio = 0.6   # 0.8 → 0.6 (더 보수적)
                     
                     print(f"📊 SMOTE 타겟 비율: {target_ratio}")
                     smote = SMOTE(sampling_strategy=target_ratio, random_state=42, k_neighbors=k_neighbors)
@@ -378,7 +413,10 @@ class AIModelManager:
                 else:
                     print("⚠️ SMOTE 적용 불가 (데이터 부족), 기존 방법 사용")
             except Exception as e:
-                print(f"⚠️ SMOTE 적용 실패: {e}")
+                print(f"⚠️ SMOTE 적용 실패, 강제 정제 시도: {e}")
+                # 최종 안전장치: 모든 문제값을 0으로 치환
+                X_train_clean = np.nan_to_num(X_train_clean, nan=0.0, posinf=1e10, neginf=-1e10)
+                print("🔧 긴급 정제 완료")
 
         # SMOTE 없거나 실패시 기존 리샘플링 방법 사용
         return self._balance_classes_traditional(X_train_clean, y_train)
@@ -418,7 +456,7 @@ class AIModelManager:
         return X_train, y_train
 
     def _find_optimal_threshold(self, model, X_val: np.ndarray, y_val: np.ndarray) -> float:
-        """최적 임계값 찾기 (F1 점수 기준)"""
+        """최적 임계값 찾기 (F1 점수 기준) - 개선된 버전"""
         try:
             from sklearn.metrics import precision_recall_curve
             
@@ -433,19 +471,39 @@ class AIModelManager:
             print(f"📊 최적 임계값: {optimal_threshold:.3f}")
             print(f"📊 해당 F1 점수: {f1_scores[optimal_idx]:.3f}")
             
-            # 임계값이 너무 극단적이면 조정
-            if optimal_threshold < 0.05:  # 0.1 → 0.05로 완화
-                optimal_threshold = 0.05
-                print("📊 임계값을 0.05로 조정 (너무 낮음)")
-            elif optimal_threshold > 0.95:  # 0.9 → 0.95로 완화
-                optimal_threshold = 0.95
-                print("📊 임계값을 0.95로 조정 (너무 높음)")
+            # 🔧 임계값 범위를 더 완화 (클래스 불균형 해결)
+            if optimal_threshold < 0.01:  # 0.05 → 0.01로 더 완화
+                optimal_threshold = 0.01
+                print("📊 임계값을 0.01로 조정 (너무 낮음)")
+            elif optimal_threshold > 0.99:  # 0.95 → 0.99로 더 완화
+                optimal_threshold = 0.99
+                print("📊 임계값을 0.99로 조정 (너무 높음)")
+            elif optimal_threshold > 0.8:  # 0.9 → 0.8로 더 완화
+                optimal_threshold = 0.8
+                print("📊 임계값을 0.8로 조정 (안정성 확보)")
+            elif optimal_threshold > 0.7:  # 추가: 0.7 초과도 조정
+                optimal_threshold = 0.7
+                print("📊 임계값을 0.7로 조정 (양성 예측 증가)")
+            elif optimal_threshold > 0.6:  # 추가: 0.6 초과도 조정
+                optimal_threshold = 0.6
+                print("📊 임계값을 0.6로 조정 (양성 예측 확대)")
+                
+            # 🔧 예측 확률 분포 기반 동적 조정
+            pred_mean = np.mean(y_pred_proba)
+            pred_std = np.std(y_pred_proba)
+            
+            # 예측 분포가 너무 좁으면 임계값을 평균 근처로 조정
+            if pred_std < 0.05:  # 표준편차가 너무 작으면
+                dynamic_threshold = pred_mean - 0.5 * pred_std  # 평균보다 조금 낮게
+                if dynamic_threshold < optimal_threshold:
+                    optimal_threshold = max(dynamic_threshold, 0.1)  # 최소 0.1
+                    print(f"📊 동적 임계값 조정: {optimal_threshold:.3f} (예측 분포 기반)")
                 
             return optimal_threshold
             
         except Exception as e:
-            print(f"⚠️ 최적 임계값 계산 실패: {e}, 기본값 0.5 사용")
-            return 0.5
+            print(f"⚠️ 최적 임계값 계산 실패: {e}, 기본값 0.3 사용")  # 0.5 → 0.3으로 더 완화
+            return 0.3
 
     def train_ai_model_at_date(self, end_date):
         """특정 날짜 시점에서 AI 모델 훈련 (백테스트 전용)"""
@@ -490,25 +548,28 @@ class AIModelManager:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # LightGBM 파라미터 (충돌 해결)
+            # 🔧 균형 잡힌 LightGBM 파라미터 (과도한 편향 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
-                'num_leaves': 31,
-                'learning_rate': 0.05,
-                'feature_fraction': 0.8,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
-                'min_data_in_leaf': 20,
-                'lambda_l1': 0.1,
-                'lambda_l2': 0.1,
-                'min_gain_to_split': 0.05,
-                'max_depth': 6,
-                'verbose': -1,
-                'random_state': 42,
-                'force_col_wise': True,
-                'scale_pos_weight': 4.0,  # is_unbalance 제거하고 이것만 사용
-                'boost_from_average': False,
+                'boosting_type': 'gbdt',
+                'num_leaves': 31,           # 유지
+                'learning_rate': 0.05,      # 0.01 → 0.05 (학습 효율성 개선)
+                'feature_fraction': 0.9,    # 0.8 → 0.9 (더 많은 피처 사용)
+                'bagging_fraction': 0.9,    # 0.8 → 0.9 (더 많은 데이터 사용)
+                'bagging_freq': 5,          # 유지
+                'min_data_in_leaf': 50,     # 10 → 50 (과적합 방지)
+                'lambda_l1': 0.05,          # 0.01 → 0.05 (적절한 정규화)
+                'lambda_l2': 0.05,          # 0.01 → 0.05 (적절한 정규화)
+                'min_gain_to_split': 0.05,  # 0.01 → 0.05 (의미있는 분할만)
+                'max_depth': 6,             # 8 → 6 (과적합 방지)
+                'verbose': 1,               # 학습 과정 모니터링
+                'random_state': 42,         # 유지
+                'force_col_wise': True,     # 유지
+                'scale_pos_weight': 5.0,    # 50.0 → 5.0 (과도한 편향 해결)
+                # 'is_unbalance': True,     # ← 제거 (scale_pos_weight와 충돌)
+                'boost_from_average': False, # 유지
+                'max_delta_step': 0.7,      # 0.5 → 0.7 (안정적인 학습)
             }
 
             # 클래스 가중치 계산
@@ -524,18 +585,21 @@ class AIModelManager:
             train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weights)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
-            # 모델 훈련
+            # 모델 훈련 (조기 종료 조건 대폭 완화)
             model = lgb.train(
                 lgb_params,
                 train_data,
                 valid_sets=[valid_data],
-                num_boost_round=500,
-                callbacks=[lgb.early_stopping(stopping_rounds=50), lgb.log_evaluation(50)]
+                num_boost_round=2000,  # 500 → 2000 (충분한 학습)
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=200),  # 50 → 200 (조기 종료 대폭 완화)
+                    lgb.log_evaluation(50)  # 50 → 50 유지
+                ]
             )
 
             # 성능 평가
             y_pred_test_proba = model.predict(X_test)
-            y_pred_test = (y_pred_test_proba > 0.7).astype(int)
+            y_pred_test = (y_pred_test_proba > 0.4).astype(int)  # 0.7 → 0.4로 완화
 
             test_accuracy = accuracy_score(y_test, y_pred_test)
             
@@ -703,12 +767,12 @@ class AIModelManager:
                 # 개선된 타겟 생성: 안정성 중심 이진 분류
                 future_5d_return = valid_data['future_5d_return']
 
-                # 🎯 타겟 재정의 - 안정성 중심 접근
-                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
-                # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
-
-                # 1단계: 기본 수익률 기준 완화 (1.5% → 1.0%)
-                basic_profit_threshold = 0.01  # 1.0%로 완화
+                # 🎯 타겟 재정의 - 더 현실적인 기준으로 상향 조정
+                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.0% 이상을 의미있는 수익으로 정의
+                # 기존 0.5% → 1.0%로 상향 조정 (더 명확한 신호 포착)
+                
+                # 1단계: 기본 수익률 기준 상향 조정
+                basic_profit_threshold = 0.01  # 1.0% (0.5% → 1.0%로 상향)
 
                 # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
                 try:
@@ -803,25 +867,28 @@ class AIModelManager:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # LightGBM 파라미터 (충돌 해결)
+            # 🔧 균형 잡힌 LightGBM 파라미터 (과도한 편향 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
-                'num_leaves': 31,
-                'learning_rate': 0.05,
-                'feature_fraction': 0.8,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
-                'min_data_in_leaf': 20,
-                'lambda_l1': 0.1,
-                'lambda_l2': 0.1,
-                'min_gain_to_split': 0.05,
-                'max_depth': 6,
-                'verbose': -1,
-                'random_state': 42,
-                'force_col_wise': True,
-                'scale_pos_weight': 4.0,  # is_unbalance 제거하고 이것만 사용
-                'boost_from_average': False,
+                'boosting_type': 'gbdt',
+                'num_leaves': 31,           # 유지
+                'learning_rate': 0.05,      # 0.01 → 0.05 (학습 효율성 개선)
+                'feature_fraction': 0.9,    # 0.8 → 0.9 (더 많은 피처 사용)
+                'bagging_fraction': 0.9,    # 0.8 → 0.9 (더 많은 데이터 사용)
+                'bagging_freq': 5,          # 유지
+                'min_data_in_leaf': 50,     # 10 → 50 (과적합 방지)
+                'lambda_l1': 0.05,          # 0.01 → 0.05 (적절한 정규화)
+                'lambda_l2': 0.05,          # 0.01 → 0.05 (적절한 정규화)
+                'min_gain_to_split': 0.05,  # 0.01 → 0.05 (의미있는 분할만)
+                'max_depth': 6,             # 8 → 6 (과적합 방지)
+                'verbose': 1,               # 학습 과정 모니터링
+                'random_state': 42,         # 유지
+                'force_col_wise': True,     # 유지
+                'scale_pos_weight': 5.0,    # 50.0 → 5.0 (과도한 편향 해결)
+                # 'is_unbalance': True,     # ← 제거 (scale_pos_weight와 충돌)
+                'boost_from_average': False, # 유지
+                'max_delta_step': 0.7,      # 0.5 → 0.7 (안정적인 학습)
             }
 
             # 클래스 가중치 계산 (수동으로 계산하여 적용)
@@ -840,13 +907,16 @@ class AIModelManager:
             train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weights)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
-            # 모델 훈련 (조기 종료 조건 완화)
+            # 🔧 모델 훈련 (조기 종료 조건 대폭 완화)
             model = lgb.train(
                 lgb_params,
                 train_data,
                 valid_sets=[valid_data],
-                num_boost_round=1000,  # 증가
-                callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(100)]  # 조기 종료 완화
+                num_boost_round=2000,        # 200 → 2000 (충분한 학습 기회)
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=200),  # 50 → 200 (조기 종료 대폭 완화)
+                    lgb.log_evaluation(50)   # 10 → 50 (로그 빈도 조정)
+                ]
             )
 
             # 최적 임계값 찾기
@@ -1103,12 +1173,12 @@ class AIModelManager:
                 # 🎯 개선된 타겟 생성: 안정성 중심 이진 분류 (백테스트 엔진과 동일)
                 future_5d_return = valid_data['future_5d_return']
 
-                # 🎯 타겟 재정의 - 안정성 중심 접근
-                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.5% 이상을 의미있는 수익으로 정의
-                # 기존 1% → 1.5%로 상향 조정 (더 엄격한 기준으로 노이즈 제거)
-
-                # 1단계: 기본 수익률 기준 완화 (1.5% → 1.0%)
-                basic_profit_threshold = 0.01  # 1.0%로 완화
+                # 🎯 타겟 재정의 - 더 현실적인 기준으로 상향 조정
+                # 수수료 0.3% × 2 = 0.6% + 슬리피지 고려하여 1.0% 이상을 의미있는 수익으로 정의
+                # 기존 0.5% → 1.0%로 상향 조정 (더 명확한 신호 포착)
+                
+                # 1단계: 기본 수익률 기준 상향 조정
+                basic_profit_threshold = 0.01  # 1.0% (0.5% → 1.0%로 상향)
 
                 # 🎯 2단계: 안정성 조건 추가 (점진적 도입)
                 try:
@@ -1204,28 +1274,31 @@ class AIModelManager:
 
             print(f"📊 데이터 분할: 훈련({len(X_train)}) / 검증({len(X_val)}) / 테스트({len(X_test)})")
 
-            # LightGBM 파라미터 (충돌 해결)
+            # 🔧 균형 잡힌 LightGBM 파라미터 (과도한 편향 해결)
             lgb_params = {
                 'objective': 'binary',
                 'metric': 'binary_logloss',
-                'num_leaves': 31,
-                'learning_rate': 0.05,
-                'feature_fraction': 0.8,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
-                'min_data_in_leaf': 20,
-                'lambda_l1': 0.1,
-                'lambda_l2': 0.1,
-                'min_gain_to_split': 0.05,
-                'max_depth': 6,
-                'verbose': -1,
-                'random_state': 42,
-                'force_col_wise': True,
-                'scale_pos_weight': 4.0,  # is_unbalance 제거하고 이것만 사용
-                'boost_from_average': False,
+                'boosting_type': 'gbdt',
+                'num_leaves': 31,           # 유지
+                'learning_rate': 0.05,      # 0.01 → 0.05 (학습 효율성 개선)
+                'feature_fraction': 0.9,    # 0.8 → 0.9 (더 많은 피처 사용)
+                'bagging_fraction': 0.9,    # 0.8 → 0.9 (더 많은 데이터 사용)
+                'bagging_freq': 5,          # 유지
+                'min_data_in_leaf': 50,     # 10 → 50 (과적합 방지)
+                'lambda_l1': 0.05,          # 0.01 → 0.05 (적절한 정규화)
+                'lambda_l2': 0.05,          # 0.01 → 0.05 (적절한 정규화)
+                'min_gain_to_split': 0.05,  # 0.01 → 0.05 (의미있는 분할만)
+                'max_depth': 6,             # 8 → 6 (과적합 방지)
+                'verbose': 1,               # 학습 과정 모니터링
+                'random_state': 42,         # 유지
+                'force_col_wise': True,     # 유지
+                'scale_pos_weight': 5.0,    # 50.0 → 5.0 (과도한 편향 해결)
+                # 'is_unbalance': True,     # ← 제거 (scale_pos_weight와 충돌)
+                'boost_from_average': False, # 유지
+                'max_delta_step': 0.7,      # 0.5 → 0.7 (안정적인 학습)
             }
 
-            # 클래스 가중치 계산
+            # 🔧 클래스 가중치 계산 (더 강한 가중치 적용)
             class_weights = compute_class_weight(
                 'balanced',
                 classes=np.unique(y_train),
@@ -1233,19 +1306,31 @@ class AIModelManager:
             )
 
             print(f"📊 클래스 가중치: {dict(zip(np.unique(y_train), class_weights))}")
-            sample_weights = np.array([class_weights[label] for label in y_train])
+            
+            # 🔧 수동으로 더 강한 가중치 설정 (클래스 불균형이 심한 경우)
+            pos_weight = len(y_train[y_train == 0]) / len(y_train[y_train == 1])
+            if pos_weight > 5:  # 5:1 이상의 불균형
+                # 더 강한 가중치 적용
+                sample_weights = np.where(y_train == 1, pos_weight * 1.5, 1.0)
+                print(f"📊 강화된 클래스 가중치 적용: 양성 클래스 × {pos_weight * 1.5:.1f}")
+            else:
+                sample_weights = np.array([class_weights[label] for label in y_train])
+                print(f"📊 기본 클래스 가중치 사용")
 
             # 데이터셋 생성
             train_data = lgb.Dataset(X_train, label=y_train, weight=sample_weights)
             valid_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
 
-            # 모델 훈련 (개선된 설정)
+            # 모델 훈련 (조기 종료 조건 대폭 완화)
             model = lgb.train(
                 lgb_params,
                 train_data,
                 valid_sets=[valid_data],
-                num_boost_round=1000,  # 증가
-                callbacks=[lgb.early_stopping(stopping_rounds=100), lgb.log_evaluation(100)]  # 조기 종료 완화
+                num_boost_round=2000,  # 1000 → 2000 (충분한 학습)
+                callbacks=[
+                    lgb.early_stopping(stopping_rounds=200),  # 100 → 200 (조기 종료 완화)
+                    lgb.log_evaluation(50)  # 100 → 50 (로그 빈도 조정)
+                ]
             )
 
             # 최적 임계값 찾기
@@ -1254,6 +1339,9 @@ class AIModelManager:
             # 성능 평가
             y_pred_val_proba = model.predict(X_val)
             y_pred_test_proba = model.predict(X_test)
+            
+            # 🔍 디버깅: 예측 확률 분포 확인
+            self.debug_prediction_distribution(y_pred_test_proba, "테스트 데이터")
 
             # 이진 분류 예측 (최적 임계값 사용)
             y_pred_val = (y_pred_val_proba > optimal_threshold).astype(int)

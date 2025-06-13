@@ -46,9 +46,9 @@ def main():
         # 4. AI 신뢰도 기반 투자 전략 활성화 (백테스트 엔진 핵심 기능)
         if 'ai_confidence_strategy' not in strategy_data:
             strategy_data['ai_confidence_strategy'] = True
-            strategy_data['ai_high_confidence_threshold'] = 0.65   # 고신뢰 기준
-            strategy_data['ai_medium_confidence_threshold'] = 0.55 # 중신뢰 기준
-            strategy_data['ai_low_confidence_threshold'] = 0.45    # 저신뢰 기준
+            strategy_data['ai_high_confidence_threshold'] = 0.55   # 고신뢰 기준 (0.65 → 0.55)
+            strategy_data['ai_medium_confidence_threshold'] = 0.45 # 중신뢰 기준 (0.55 → 0.45)
+            strategy_data['ai_low_confidence_threshold'] = 0.35    # 저신뢰 기준 (0.45 → 0.35)
             print("✅ AI 신뢰도 기반 투자 전략 활성화")
             print(f"   🎯 고신뢰 기준: {strategy_data['ai_high_confidence_threshold']}")
             print(f"   🎯 중신뢰 기준: {strategy_data['ai_medium_confidence_threshold']}")
@@ -64,7 +64,7 @@ def main():
             strategy_data['hybrid_selection_enabled'] = True
             strategy_data['hybrid_ai_weight'] = 0.4      # AI 가중치 40%
             strategy_data['hybrid_technical_weight'] = 0.6  # 기술적 분석 가중치 60%
-            strategy_data['hybrid_threshold'] = 0.60     # 하이브리드 최소 기준
+            strategy_data['hybrid_threshold'] = 0.50     # 하이브리드 최소 기준 (0.60 → 0.50)
             print("✅ 하이브리드 선정 시스템 활성화")
             print(f"   ⚖️ AI 가중치: {strategy_data['hybrid_ai_weight']*100:.0f}%")
             print(f"   📊 기술 가중치: {strategy_data['hybrid_technical_weight']*100:.0f}%")
@@ -73,7 +73,7 @@ def main():
         # 7. 안정성 중심 타겟 설정 (백테스트 엔진 + 독립 훈련 모듈 기능)
         if 'stability_focused_target' not in strategy_data:
             strategy_data['stability_focused_target'] = True
-            strategy_data['profit_threshold'] = 0.015    # 1.5% 이상 수익
+            strategy_data['profit_threshold'] = 0.005    # 0.5% 이상 수익 (1.5% → 0.5%)
             strategy_data['volatility_control'] = True   # 변동성 제어
             strategy_data['crash_protection'] = True     # 급락 방지
             print("✅ 안정성 중심 타겟 설정 활성화")
@@ -362,11 +362,11 @@ def adjust_ai_thresholds_by_quality(strategy_data, model_quality_score):
     try:
         print(f"🎯 AI 임계값 동적 조정 (모델 품질: {model_quality_score:.1f}/100)")
         
-        # 기본 임계값
-        base_high = 0.65
-        base_medium = 0.55
-        base_low = 0.45
-        base_hybrid = 0.60
+        # 기본 임계값 (대폭 완화)
+        base_high = 0.55     # 0.65 → 0.55
+        base_medium = 0.45   # 0.55 → 0.45
+        base_low = 0.35      # 0.45 → 0.35
+        base_hybrid = 0.50   # 0.60 → 0.50
         
         # 품질 점수에 따른 조정 계수
         if model_quality_score >= 70:  # 고품질 모델 (70점 이상)
