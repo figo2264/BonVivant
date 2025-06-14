@@ -18,4 +18,5 @@ dependencies = [
     "scikit-learn==1.3.0",
     "slack-sdk>=3.35.0",
     "ta>=0.11.0",
+    "timedelta>=2020.12.3",
 ]

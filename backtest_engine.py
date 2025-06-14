@@ -63,7 +63,7 @@ class BacktestEngine:
 
     # ============ AI 모델 관련 기능 (strategy.py 기반) ============
     
-    def prepare_training_data_until(self, end_date, lookback_days=500):  # 1000 → 180일로 단축
+    def prepare_training_data_until(self, end_date, lookback_days=100):  # 1000 → 180일로 단축
         """특정 날짜까지의 AI 모델 학습용 데이터 준비 (강화된 버전, Look-ahead bias 방지)"""
         print(f"📚 {end_date}까지 AI 학습 데이터 준비 중...")
         
@@ -78,9 +78,18 @@ class BacktestEngine:
             all_data = []
             current_date = start_date_pd
             collected_days = 0
-            max_collect_days = min(lookback_days, 500)  # 최대 180일치만 수집
+            max_collect_days = min(lookback_days, 100)  # 최대 180일치만 수집
             
-            while current_date <= end_date_pd and collected_days < max_collect_days:
+            # 무한 루프 방지를 위한 최대 시도 횟수 제한
+            max_attempts = lookback_days * 3  # 최대 시도 횟수 (여유있게 3배)
+            attempt_count = 0
+            
+            while (current_date <= end_date_pd and 
+                   collected_days < max_collect_days and 
+                   attempt_count < max_attempts):  # 무한 루프 방지
+                
+                attempt_count += 1  # 시도 횟수 증가
+                
                 if current_date.weekday() < 5:  # 평일만
                     try:
                         date_str = current_date.strftime('%Y%m%d')
@@ -97,6 +106,8 @@ class BacktestEngine:
                             kosdaq = pd.DataFrame()
                         
                         if kospi.empty and kosdaq.empty:
+                            # 데이터가 없어도 current_date는 진행
+                            current_date += timedelta(days=1)
                             continue
                             
                         daily_data = pd.concat([kospi, kosdaq])
@@ -118,6 +129,12 @@ class BacktestEngine:
                         pass  # 데이터 없는 날짜는 스킵
                         
                 current_date += timedelta(days=1)
+            
+            # 디버깅 정보 출력
+            if attempt_count >= max_attempts:
+                print(f"⚠️ 최대 시도 횟수({max_attempts})에 도달하여 데이터 수집을 중단했습니다.")
+                print(f"   수집된 일수: {collected_days}/{max_collect_days}")
+                print(f"   수집 기간: {start_date_pd.strftime('%Y-%m-%d')} ~ {current_date.strftime('%Y-%m-%d')}")
             
             if not all_data:
                 print("❌ 학습 데이터 수집 실패")
@@ -664,12 +681,12 @@ class BacktestEngine:
     def get_ai_prediction_score(self, ticker, current_date, model):
         """AI 모델을 사용한 예측 점수 (다중 클래스 대응, strategy.py와 동일)"""
         try:
-            # 현재 날짜까지의 데이터만 사용
-            data = self.get_past_data(ticker, n=50)  # 충분한 데이터 확보
+            # 현재 날짜까지의 데이터만 사용 (백테스팅 날짜 고려)
+            data = self.get_past_data(ticker, n=50, end_date=current_date)  # 백테스팅 날짜 전달
             if data.empty or len(data) < 30:
                 return 0.3  # 데이터 부족시 낮은 점수
 
-            # 현재 날짜 이후 데이터 제거
+            # 현재 날짜 이후 데이터 제거 (이미 get_past_data에서 처리됨)
             current_date_pd = pd.to_datetime(current_date)
             data = data[pd.to_datetime(data['timestamp']) <= current_date_pd].copy()
             if len(data) < 30:
@@ -946,33 +963,52 @@ class BacktestEngine:
         
         return final_selection
 
-    def get_past_data(self, ticker, n=100):
-        """개별 종목 과거 원시 데이터 조회 (안정성 강화)"""
+    def get_past_data(self, ticker, n=100, end_date=None):
+        """개별 종목 과거 원시 데이터 조회 (백테스팅 날짜 고려, 안정성 강화)"""
         try:
-            # 1차 시도: FinanceDataReader
+            # 1차 시도: FinanceDataReader (백테스팅 날짜 고려)
             try:
-                data = fdr.DataReader(ticker, start=None, end=None)
+                if end_date is not None:
+                    # 백테스팅 모드: 지정된 날짜까지만 조회
+                    end_date_pd = pd.to_datetime(end_date)
+                    start_date_pd = end_date_pd - timedelta(days=n*3)  # 여유있게 조회
+                    data = fdr.DataReader(ticker, start=start_date_pd.strftime('%Y-%m-%d'), end=end_date_pd.strftime('%Y-%m-%d'))
+                else:
+                    # 실시간 모드: 전체 데이터 조회
+                    data = fdr.DataReader(ticker, start=None, end=None)
+                
                 if not data.empty:
                     data.columns = [col.lower() for col in data.columns]
                     data.index.name = 'timestamp'
                     data = data.reset_index()
                     
-                    if n == 1:
-                        return data.iloc[-1:].copy()
-                    else:
-                        return data.tail(n).copy()
+                    # 백테스팅 날짜 필터링
+                    if end_date is not None:
+                        end_date_pd = pd.to_datetime(end_date)
+                        data = data[pd.to_datetime(data['timestamp']) <= end_date_pd]
+                    
+                    if not data.empty:
+                        if n == 1:
+                            return data.iloc[-1:].copy()
+                        else:
+                            return data.tail(n).copy()
             except Exception as e:
                 print(f"⚠️ {ticker}: FinanceDataReader 조회 실패 ({e})")
             
-            # 2차 시도: pykrx 사용
+            # 2차 시도: pykrx 사용 (백테스팅 날짜 고려)
             try:
-                from datetime import datetime, timedelta
-                end_date = datetime.now().strftime('%Y%m%d')
-                start_date = (datetime.now() - timedelta(days=n*2)).strftime('%Y%m%d')
+                if end_date is not None:
+                    # 백테스팅 모드: 지정된 날짜까지만 조회
+                    end_date_str = pd.to_datetime(end_date).strftime('%Y%m%d')
+                    start_date_str = (pd.to_datetime(end_date) - timedelta(days=n*3)).strftime('%Y%m%d')
+                else:
+                    # 실시간 모드: 현재 날짜 기준 조회
+                    end_date_str = datetime.now().strftime('%Y%m%d')
+                    start_date_str = (datetime.now() - timedelta(days=n*2)).strftime('%Y%m%d')
                 
                 # KOSPI 시도
                 try:
-                    kospi_data = pystock.get_market_ohlcv(start_date, end_date, ticker, market='KOSPI')
+                    kospi_data = pystock.get_market_ohlcv(start_date_str, end_date_str, ticker)
                     if not kospi_data.empty:
                         kospi_data = kospi_data.rename(columns={
                             '시가': 'open', '고가': 'high', '저가': 'low', '종가': 'close',
@@ -980,28 +1016,48 @@ class BacktestEngine:
                         })
                         kospi_data.index.name = 'timestamp'
                         kospi_data = kospi_data.reset_index()
-                        print(f"✅ {ticker}: pykrx KOSPI 데이터 조회 성공")
+                        print(f"✅ {ticker}: pykrx 개별종목 데이터 조회 성공")
                         return kospi_data.tail(n).copy() if n > 1 else kospi_data.iloc[-1:].copy()
-                except:
-                    pass
+                except Exception as e:
+                    print(f"⚠️ {ticker}: pykrx 개별종목 조회 실패 ({e})")
                 
-                # KOSDAQ 시도
+                # 3차 시도: pykrx 시장별 조회
                 try:
-                    kosdaq_data = pystock.get_market_ohlcv(start_date, end_date, ticker, market='KOSDAQ')
-                    if not kosdaq_data.empty:
-                        kosdaq_data = kosdaq_data.rename(columns={
+                    # KOSPI 시장 데이터에서 해당 종목 찾기
+                    kospi_data = pystock.get_market_ohlcv(end_date_str, market='KOSPI')
+                    if not kospi_data.empty and ticker in kospi_data.index:
+                        ticker_data = kospi_data.loc[[ticker]].copy()
+                        ticker_data = ticker_data.rename(columns={
                             '시가': 'open', '고가': 'high', '저가': 'low', '종가': 'close',
                             '거래량': 'volume', '거래대금': 'trade_amount'
                         })
-                        kosdaq_data.index.name = 'timestamp'
-                        kosdaq_data = kosdaq_data.reset_index()
-                        print(f"✅ {ticker}: pykrx KOSDAQ 데이터 조회 성공")
-                        return kosdaq_data.tail(n).copy() if n > 1 else kosdaq_data.iloc[-1:].copy()
-                except:
-                    pass
+                        ticker_data['timestamp'] = end_date_str[:4] + '-' + end_date_str[4:6] + '-' + end_date_str[6:8]
+                        ticker_data.index.name = 'ticker'
+                        ticker_data = ticker_data.reset_index(drop=True)
+                        print(f"✅ {ticker}: pykrx KOSPI 시장 데이터에서 조회 성공")
+                        return ticker_data
+                except Exception as e:
+                    print(f"⚠️ {ticker}: pykrx KOSPI 시장 조회 실패 ({e})")
+                
+                # 4차 시도: KOSDAQ 시장 데이터에서 해당 종목 찾기
+                try:
+                    kosdaq_data = pystock.get_market_ohlcv(end_date_str, market='KOSDAQ')
+                    if not kosdaq_data.empty and ticker in kosdaq_data.index:
+                        ticker_data = kosdaq_data.loc[[ticker]].copy()
+                        ticker_data = ticker_data.rename(columns={
+                            '시가': 'open', '고가': 'high', '저가': 'low', '종가': 'close',
+                            '거래량': 'volume', '거래대금': 'trade_amount'
+                        })
+                        ticker_data['timestamp'] = end_date_str[:4] + '-' + end_date_str[4:6] + '-' + end_date_str[6:8]
+                        ticker_data.index.name = 'ticker'
+                        ticker_data = ticker_data.reset_index(drop=True)
+                        print(f"✅ {ticker}: pykrx KOSDAQ 시장 데이터에서 조회 성공")
+                        return ticker_data
+                except Exception as e:
+                    print(f"⚠️ {ticker}: pykrx KOSDAQ 시장 조회 실패 ({e})")
                     
             except Exception as e:
-                print(f"⚠️ {ticker}: pykrx 조회 실패 ({e})")
+                print(f"⚠️ {ticker}: pykrx 전체 조회 실패 ({e})")
             
             print(f"❌ {ticker}: 모든 데이터 소스 조회 실패")
             return pd.DataFrame()
@@ -1012,37 +1068,39 @@ class BacktestEngine:
 
     def validate_ticker_data(self, ticker, current_date, min_days=5):
         """
-        종목 데이터 존재 여부 사전 확인 (강화된 버전)
+        종목 데이터 존재 여부 사전 확인 (백테스팅 날짜 고려, 강화된 버전)
         
         Args:
             ticker: 종목 코드
-            current_date: 현재 날짜
+            current_date: 현재 날짜 (백테스팅 기준 날짜)
             min_days: 최소 필요 데이터 일수
             
         Returns:
             bool: 데이터 유효성 여부
         """
         try:
-            # 1. 기본 데이터 조회 (더 많은 데이터로 조회)
-            data = self.get_past_data(ticker, n=min_days * 3)  # 여유있게 조회
+            # 1. 백테스팅 날짜를 고려한 데이터 조회 (더 많은 데이터로 조회)
+            data = self.get_past_data(ticker, n=min_days * 6, end_date=current_date)  # 백테스팅 날짜 전달
             if data.empty:
                 print(f"⚠️ {ticker}: 기본 데이터 조회 실패")
                 return False
             
-            # 2. 현재 날짜 이전 데이터만 필터링
+            # 2. 현재 날짜 이전 데이터만 필터링 (이미 get_past_data에서 처리됨)
             current_date_pd = pd.to_datetime(current_date)
             valid_data = data[pd.to_datetime(data['timestamp']) <= current_date_pd]
             
             # 3. 최소 데이터 개수 확인
             if len(valid_data) < min_days:
                 print(f"⚠️ {ticker}: 데이터 부족 ({len(valid_data)}개 < {min_days}개)")
+                print(f"   백테스팅 날짜: {current_date}")
+                print(f"   조회된 데이터 기간: {data['timestamp'].min() if not data.empty else 'N/A'} ~ {data['timestamp'].max() if not data.empty else 'N/A'}")
                 return False
             
-            # 4. 최근 데이터 확인 (완화된 기준: 7일 이내)
+            # 4. 최근 데이터 확인 (백테스팅 날짜 기준으로 완화)
             latest_date = pd.to_datetime(valid_data['timestamp'].max())
             days_diff = (current_date_pd - latest_date).days
-            if days_diff > 7:  # 3일에서 7일로 완화
-                print(f"⚠️ {ticker}: 데이터가 너무 오래됨 ({days_diff}일 전)")
+            if days_diff > 30:  # 백테스팅에서는 30일까지 허용 (더 완화)
+                print(f"⚠️ {ticker}: 데이터가 너무 오래됨 ({days_diff}일 전, 백테스팅 기준: {current_date})")
                 return False
             
             # 5. 가격 데이터 유효성 확인
@@ -1068,7 +1126,7 @@ class BacktestEngine:
                 print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
                 return False
             
-            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
+            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,}, 백테스팅 날짜: {current_date})")
             return True
             
         except Exception as e:
@@ -1076,6 +1134,7 @@ class BacktestEngine:
             # 상세 오류 로깅
             import traceback
             print(f"   오류 상세: {traceback.format_exc()}")
+            print(f"   백테스팅 날짜: {current_date}")
             return False
 
     def check_stop_loss(self, ticker, current_date, stop_loss_rate=-0.05):
@@ -1084,7 +1143,7 @@ class BacktestEngine:
         
         Args:
             ticker: 종목 코드
-            current_date: 현재 날짜
+            current_date: 현재 날짜 (백테스팅 기준 날짜)
             stop_loss_rate: 손실 제한 비율 (기본 -5%)
             
         Returns:
@@ -1099,12 +1158,12 @@ class BacktestEngine:
             if buy_price <= 0:
                 return False, 0, 0
             
-            # 현재가 조회
-            current_data = self.get_past_data(ticker, n=5)
+            # 현재가 조회 (백테스팅 날짜 고려)
+            current_data = self.get_past_data(ticker, n=5, end_date=current_date)  # 백테스팅 날짜 전달
             if current_data.empty:
                 return False, 0, 0
             
-            # 현재 날짜 이전 데이터만 사용
+            # 현재 날짜 이전 데이터만 사용 (이미 get_past_data에서 처리됨)
             current_date_pd = pd.to_datetime(current_date)
             valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
             
@@ -1465,12 +1524,12 @@ class BacktestEngine:
     def get_technical_score(self, ticker, current_date):
         """규칙 기반 기술적 분석 점수 계산 (strategy.py와 동일)"""
         try:
-            # 현재 날짜까지의 데이터만 사용 (Look-ahead bias 방지)
-            data = self.get_past_data(ticker, n=50)
+            # 현재 날짜까지의 데이터만 사용 (Look-ahead bias 방지, 백테스팅 날짜 고려)
+            data = self.get_past_data(ticker, n=50, end_date=current_date)  # 백테스팅 날짜 전달
             if data.empty or len(data) < 30:
                 return 0.5
             
-            # 현재 날짜 이후 데이터 제거
+            # 현재 날짜 이후 데이터 제거 (이미 get_past_data에서 처리됨)
             data = data[data['timestamp'] <= current_date].copy()
             if len(data) < 30:
                 return 0.5
@@ -1530,37 +1589,39 @@ class BacktestEngine:
 
     def validate_ticker_data(self, ticker, current_date, min_days=5):
         """
-        종목 데이터 존재 여부 사전 확인 (강화된 버전)
+        종목 데이터 존재 여부 사전 확인 (백테스팅 날짜 고려, 강화된 버전)
         
         Args:
             ticker: 종목 코드
-            current_date: 현재 날짜
+            current_date: 현재 날짜 (백테스팅 기준 날짜)
             min_days: 최소 필요 데이터 일수
             
         Returns:
             bool: 데이터 유효성 여부
         """
         try:
-            # 1. 기본 데이터 조회 (더 많은 데이터로 조회)
-            data = self.get_past_data(ticker, n=min_days * 3)  # 여유있게 조회
+            # 1. 백테스팅 날짜를 고려한 데이터 조회 (더 많은 데이터로 조회)
+            data = self.get_past_data(ticker, n=min_days * 6, end_date=current_date)  # 백테스팅 날짜 전달
             if data.empty:
                 print(f"⚠️ {ticker}: 기본 데이터 조회 실패")
                 return False
             
-            # 2. 현재 날짜 이전 데이터만 필터링
+            # 2. 현재 날짜 이전 데이터만 필터링 (이미 get_past_data에서 처리됨)
             current_date_pd = pd.to_datetime(current_date)
             valid_data = data[pd.to_datetime(data['timestamp']) <= current_date_pd]
             
             # 3. 최소 데이터 개수 확인
             if len(valid_data) < min_days:
                 print(f"⚠️ {ticker}: 데이터 부족 ({len(valid_data)}개 < {min_days}개)")
+                print(f"   백테스팅 날짜: {current_date}")
+                print(f"   조회된 데이터 기간: {data['timestamp'].min() if not data.empty else 'N/A'} ~ {data['timestamp'].max() if not data.empty else 'N/A'}")
                 return False
             
-            # 4. 최근 데이터 확인 (완화된 기준: 7일 이내)
+            # 4. 최근 데이터 확인 (백테스팅 날짜 기준으로 완화)
             latest_date = pd.to_datetime(valid_data['timestamp'].max())
             days_diff = (current_date_pd - latest_date).days
-            if days_diff > 7:  # 3일에서 7일로 완화
-                print(f"⚠️ {ticker}: 데이터가 너무 오래됨 ({days_diff}일 전)")
+            if days_diff > 30:  # 백테스팅에서는 30일까지 허용 (더 완화)
+                print(f"⚠️ {ticker}: 데이터가 너무 오래됨 ({days_diff}일 전, 백테스팅 기준: {current_date})")
                 return False
             
             # 5. 가격 데이터 유효성 확인
@@ -1586,7 +1647,7 @@ class BacktestEngine:
                 print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
                 return False
             
-            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
+            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,}, 백테스팅 날짜: {current_date})")
             return True
             
         except Exception as e:
@@ -1594,6 +1655,7 @@ class BacktestEngine:
             # 상세 오류 로깅
             import traceback
             print(f"   오류 상세: {traceback.format_exc()}")
+            print(f"   백테스팅 날짜: {current_date}")
             return False
 
     def check_stop_loss(self, ticker, current_date, stop_loss_rate=-0.05):
@@ -1602,7 +1664,7 @@ class BacktestEngine:
         
         Args:
             ticker: 종목 코드
-            current_date: 현재 날짜
+            current_date: 현재 날짜 (백테스팅 기준 날짜)
             stop_loss_rate: 손실 제한 비율 (기본 -5%)
             
         Returns:
@@ -1617,12 +1679,12 @@ class BacktestEngine:
             if buy_price <= 0:
                 return False, 0, 0
             
-            # 현재가 조회
-            current_data = self.get_past_data(ticker, n=5)
+            # 현재가 조회 (백테스팅 날짜 고려)
+            current_data = self.get_past_data(ticker, n=5, end_date=current_date)  # 백테스팅 날짜 전달
             if current_data.empty:
                 return False, 0, 0
             
-            # 현재 날짜 이전 데이터만 사용
+            # 현재 날짜 이전 데이터만 사용 (이미 get_past_data에서 처리됨)
             current_date_pd = pd.to_datetime(current_date)
             valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
             
@@ -1646,7 +1708,7 @@ class BacktestEngine:
         
         Args:
             ticker: 종목 코드
-            current_date: 현재 날짜
+            current_date: 현재 날짜 (백테스팅 기준 날짜)
             
         Returns:
             float: 홀드 시그널 (0.0~1.0, 0.75 이상이면 강홀드)
@@ -1657,13 +1719,13 @@ class BacktestEngine:
                 print(f"⚠️ {ticker}: 홀드 시그널 계산용 데이터 검증 실패")
                 return 0.5
             
-            # 과거 데이터 조회
-            data = self.get_past_data(ticker, n=30)
+            # 과거 데이터 조회 (백테스팅 날짜 고려)
+            data = self.get_past_data(ticker, n=30, end_date=current_date)  # 백테스팅 날짜 전달
             if data.empty or len(data) < 20:
                 print(f"⚠️ {ticker}: 홀드 시그널용 데이터 부족")
                 return 0.5
             
-            # 현재 날짜 이후 데이터 제거
+            # 현재 날짜 이후 데이터 제거 (이미 get_past_data에서 처리됨)
             current_date_pd = pd.to_datetime(current_date)
             data = data[pd.to_datetime(data['timestamp']) <= current_date_pd].copy()
             if len(data) < 20:
@@ -2036,8 +2098,8 @@ class BacktestEngine:
                 holding = self.holdings[ticker]
                 buy_price = holding.get('buy_price', 0)
                 
-                # 데이터 조회 시도
-                current_data = self.get_past_data(ticker, n=10)  # 더 많은 데이터 조회
+                # 데이터 조회 시도 (백테스팅 날짜 고려)
+                current_data = self.get_past_data(ticker, n=10, end_date=current_date)  # 백테스팅 날짜 전달
                 
                 if current_data.empty:
                     print(f"❌ {ticker}: 데이터 조회 실패 - 매수가로 매도 처리")
@@ -2132,8 +2194,8 @@ class BacktestEngine:
                 continue
                 
             try:
-                # 현재가 조회 - 더 안정적인 방법
-                current_data = self.get_past_data(ticker, n=5)
+                # 현재가 조회 - 더 안정적인 방법 (백테스팅 날짜 고려)
+                current_data = self.get_past_data(ticker, n=5, end_date=current_date)  # 백테스팅 날짜 전달
                 if current_data.empty:
                     print(f"   ❌ {ticker}: 데이터 조회 실패")
                     # 매수가로 대체 계산
