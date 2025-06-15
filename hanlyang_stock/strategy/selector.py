@@ -1,23 +1,20 @@
 """
 Stock selection strategies
-Enhanced with complete AI features from backtest_engine
+Enhanced with technical analysis features
 """
 
-import json
 from datetime import datetime
 from typing import List, Dict, Any
 from ..data.fetcher import get_data_fetcher
 from ..analysis.technical import get_technical_score, validate_ticker_data
-from ..analysis.ai_model import get_ai_manager
 from ..utils.storage import get_data_manager
 
 
 class StockSelector:
-    """종목 선정 클래스 - 백테스트 엔진의 AI 향상 기능 완전 적용"""
+    """종목 선정 클래스 - 기술적 분석 기반"""
     
     def __init__(self):
         self.data_fetcher = get_data_fetcher()
-        self.ai_manager = get_ai_manager()
         self.data_manager = get_data_manager()
         self.backtest_mode = False  # 백테스트 모드 플래그
         self.current_backtest_date = None  # 백테스트 현재 날짜
@@ -39,7 +36,7 @@ class StockSelector:
     
     def enhanced_stock_selection(self, current_date=None) -> List[Dict[str, Any]]:
         """
-        기술적 분석 강화 종목 선정 (백테스트 엔진 로직 재현) - 백테스트 모드 지원
+        기술적 분석 강화 종목 선정 - 백테스트 모드 지원
         
         Args:
             current_date: 현재 날짜 (백테스트 시 사용)
@@ -140,13 +137,13 @@ class StockSelector:
             # 기술적 분석 강화 점수로 정렬
             enhanced_candidates.sort(key=lambda x: x['combined_score'], reverse=True)
             
-            # 기술적 점수가 0.6 이상인 종목만 1차 선정
+            # 기술적 점수가 0.6 이상인 종목만 선정
             selected_candidates = []
             for candidate in enhanced_candidates[:15]:  # 상위 15개 확인
                 if candidate['technical_score'] >= 0.6 and len(selected_candidates) < 10:
                     selected_candidates.append(candidate)
             
-            print(f"🎯 기술적 분석 1차 선정: {len(selected_candidates)}개 종목")
+            print(f"🎯 기술적 분석 최종 선정: {len(selected_candidates)}개 종목")
             
             return selected_candidates
             
@@ -154,160 +151,68 @@ class StockSelector:
             print(f"❌ 종목 선정 오류: {e}")
             return []
 
-    def ai_enhanced_final_selection(self, entry_tickers: List[Dict[str, Any]], current_date=None) -> List[str]:
+    def technical_final_selection(self, entry_tickers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        AI를 활용한 최종 종목 선정 (백테스트 엔진 강화 버전 완전 적용)
+        기술적 분석 기반 최종 종목 선정
         
         Args:
             entry_tickers: 기술적 분석으로 선정된 종목들
-            current_date: 현재 날짜 (백테스트 시)
             
         Returns:
-            List[str]: AI 분석으로 최종 선정된 종목들
+            List[Dict]: 최종 선정된 종목 정보
         """
-        print("🤖 AI 최종 종목 선정 시작...")
+        print("📊 기술적 분석 최종 종목 선정 시작...")
 
-        # AI 모델 로드
-        ai_model = self.ai_manager.load_ai_model()
-        if ai_model is None:
-            print("❌ AI 모델을 사용할 수 없어 빈 리스트 반환")
-            return []
-
-        # 모델 품질 확인
-        model_quality_score = getattr(ai_model, 'model_quality_score', 60)
-        try:
-            with open('ai_model_metadata.json', 'r') as f:
-                metadata = json.load(f)
-                model_quality_score = metadata.get('model_quality_score', 60)
-        except:
-            pass
-            
-        print(f"📊 모델 품질 점수: {model_quality_score:.1f}/100")
+        # 기술적 점수로 정렬 (이미 정렬되어 있지만 확실히 함)
+        entry_tickers.sort(key=lambda x: x['combined_score'], reverse=True)
         
-        # 모델 품질이 너무 낮으면 거래 중단
-        if model_quality_score < 40:
-            print("❌ 모델 품질이 너무 낮아 거래를 중단합니다.")
-            return []
+        # 설정 로드
+        strategy_data = self.data_manager.get_data()
+        max_selections = strategy_data.get('max_selections', 5)
+        min_technical_score = strategy_data.get('min_technical_score', 0.65)
         
-        ai_scored_tickers = []
-        
-        # 각 종목에 대해 AI 예측 점수 계산
-        for candidate in entry_tickers:
-            ticker = candidate['ticker']
-            ai_score = self.ai_manager.get_ai_prediction_score(ticker, current_date, ai_model)
-            ai_scored_tickers.append({
-                'ticker': ticker,
-                'ai_score': ai_score,
-                'technical_score': candidate['technical_score'],
-                'current_price': candidate['current_price'],
-                'trade_amount': candidate['trade_amount'],
-                'combined_score': candidate['combined_score']
-            })
-            
-            print(f"🎯 {ticker}: AI 예측 점수 = {ai_score:.3f}")
-        
-        # AI 점수로 정렬
-        ai_scored_tickers.sort(key=lambda x: x['ai_score'], reverse=True)
-        
-        # 신뢰도 기준 강화: 모델 품질에 따라 동적 조정 (백테스트 엔진과 동일)
-        if model_quality_score >= 65:
-            min_score_threshold = 0.65  # 우수한 모델: 0.65 이상 (기존 0.55에서 상향)
-            max_selections = 5
-        elif model_quality_score >= 50:
-            min_score_threshold = 0.70  # 양호한 모델: 0.70 이상 (기존 0.60에서 상향)
-            max_selections = 4
-        else:
-            min_score_threshold = 0.75  # 보통 모델: 0.75 이상 (기존 0.65에서 상향)
-            max_selections = 3
-
-        print(f"📏 신뢰도 기준: {min_score_threshold:.2f} 이상 (최대 {max_selections}개)")
-
         # 기준을 만족하는 종목만 선정
         final_selection = []
-        high_confidence_count = 0
-        medium_confidence_count = 0
-        hybrid_count = 0  # 하이브리드 선정 카운트
-        
-        for item in ai_scored_tickers:
+        for item in entry_tickers:
             if len(final_selection) >= max_selections:
                 break
                 
-            # 고신뢰: AI 점수만으로 선정
-            if item['ai_score'] >= min_score_threshold:
+            # 기술적 점수가 기준 이상인 경우만 선정
+            if item['technical_score'] >= min_technical_score:
                 final_selection.append(item)
-                
-                # 신뢰도 분류 (현실적 기준)
-                if item['ai_score'] >= 0.65:
-                    high_confidence_count += 1
-                elif item['ai_score'] >= 0.55:
-                    medium_confidence_count += 1
-                    
-            # 하이브리드 접근: AI 점수가 중간 수준이면 기술적 분석과 결합
-            elif item['ai_score'] >= (min_score_threshold - 0.10) and len(final_selection) < max_selections:
-                # AI 점수와 기술적 점수의 가중 평균
-                combined_score = (item['ai_score'] * 0.7) + (item['technical_score'] * 0.3)
-                
-                # 결합 점수가 기준을 만족하면 선정
-                if combined_score >= (min_score_threshold - 0.05):
-                    final_selection.append(item)
-                    hybrid_count += 1
-                    print(f"🔄 {item['ticker']}: 하이브리드 선정 (AI: {item['ai_score']:.3f}, 기술: {item['technical_score']:.3f}, 결합: {combined_score:.3f})")
+                print(f"✅ {item['ticker']}: 기술 점수 {item['technical_score']:.3f} (거래대금: {item['trade_amount']:,.0f})")
 
         # 선정 결과 출력
         if len(final_selection) == 0:
-            print("❌ AI 신뢰도 기준을 만족하는 종목이 없습니다.")
+            print("❌ 기술적 분석 기준을 만족하는 종목이 없습니다.")
             print("⚠️ 오늘은 매수를 건너뛰겠습니다.")
             
             # 가장 높은 점수라도 출력
-            if ai_scored_tickers:
-                best_score = ai_scored_tickers[0]['ai_score']
-                print(f"📊 최고 점수: {best_score:.3f} (기준: {min_score_threshold:.2f})")
+            if entry_tickers:
+                best_score = entry_tickers[0]['technical_score']
+                print(f"📊 최고 점수: {best_score:.3f} (기준: {min_technical_score:.2f})")
         else:
-            print(f"🏆 AI 최종 선정: {len(final_selection)}개 종목")
-            print(f"   🟢 고신뢰(0.65+): {high_confidence_count}개")
-            print(f"   🟡 중신뢰(0.55+): {medium_confidence_count}개")
-            print(f"   🔄 하이브리드: {hybrid_count}개")
+            print(f"🏆 기술적 분석 최종 선정: {len(final_selection)}개 종목")
 
-        # AI 예측 결과 저장 (모든 종목의 점수 저장)
-        strategy_data = self.data_manager.get_data()
-        if 'ai_predictions' not in strategy_data:
-            strategy_data['ai_predictions'] = {}
-            
-        for item in ai_scored_tickers:
-            # 강화된 신뢰도 레벨 분류 (executor.py와 일관성 맞춤)
-            if item['ai_score'] >= 0.80:
-                confidence_level = "최고신뢰"
-            elif item['ai_score'] >= 0.70:
-                confidence_level = "고신뢰"
-            elif item['ai_score'] >= 0.65:
-                confidence_level = "중신뢰"
-            else:
-                confidence_level = "저신뢰"
-                
-            strategy_data['ai_predictions'][item['ticker']] = {
-                'score': item['ai_score'],
-                'confidence_level': confidence_level,
-                'timestamp': datetime.now().isoformat(),
-                'selected': item in final_selection,
-                'model_quality': model_quality_score
-            }
-
-        # 기술적 분석 정보도 저장
+        # 기술적 분석 정보 저장
         if 'technical_analysis' not in strategy_data:
             strategy_data['technical_analysis'] = {}
         
-        for item in ai_scored_tickers:
+        for item in entry_tickers:
             strategy_data['technical_analysis'][item['ticker']] = {
                 'score': item['technical_score'],
                 'timestamp': datetime.now().isoformat(),
-                'traditional_rank': int(item['trade_amount'])
+                'trade_amount': int(item['trade_amount']),
+                'selected': item in final_selection
             }
 
+        self.data_manager.save()
+        
         return final_selection
 
     def select_stocks_for_buy(self, current_date=None) -> List[str]:
         """
-        매수용 종목 선정 (전체 워크플로우) - 데이터 검증 강화
+        매수용 종목 선정 (전체 워크플로우) - 기술적 분석 기반
         
         Args:
             current_date: 현재 날짜 (백테스트 시)
@@ -323,16 +228,11 @@ class StockSelector:
                 print("📊 기술적 분석에서 선정된 종목이 없습니다.")
                 return []
             
-            # 2단계: AI 기반 최종 선정
-            strategy_data = self.data_manager.get_data()
-            ai_enabled = strategy_data.get('enhanced_analysis_enabled', True)
+            # 2단계: 기술적 분석 기반 최종 선정
+            final_selections = self.technical_final_selection(entry_candidates)
+            final_tickers = [item['ticker'] for item in final_selections]
             
-            if ai_enabled:
-                final_tickers = self.ai_enhanced_final_selection(entry_candidates, current_date)
-                print(f"🤖 AI 선정 결과: {len(final_tickers)}개")
-            else:
-                final_tickers = [item['ticker'] for item in entry_candidates[:5]]  # AI 없으면 상위 5개
-                print(f"📊 AI 모델 없음 - 기술적 분석 상위 5개 선정")
+            print(f"📊 최종 선정 결과: {len(final_tickers)}개")
             
             return final_tickers
             
@@ -351,24 +251,32 @@ class StockSelector:
         """
         strategy_data = self.data_manager.get_data()
         
+        technical_analysis = strategy_data.get('technical_analysis', {})
+        
         summary = {
-            'technical_analysis_count': len(strategy_data.get('technical_analysis', {})),
-            'ai_predictions_count': len(strategy_data.get('ai_predictions', {})),
-            'high_confidence_count': 0,
-            'medium_confidence_count': 0,
-            'selected_count': 0
+            'technical_analysis_count': len(technical_analysis),
+            'selected_count': 0,
+            'avg_technical_score': 0,
+            'max_technical_score': 0,
+            'min_technical_score': 1.0
         }
         
-        # AI 예측 통계
-        for prediction in strategy_data.get('ai_predictions', {}).values():
-            if prediction.get('selected', False):
+        # 기술적 분석 통계
+        scores = []
+        for analysis in technical_analysis.values():
+            score = analysis.get('score', 0)
+            scores.append(score)
+            
+            if analysis.get('selected', False):
                 summary['selected_count'] += 1
             
-            confidence = prediction.get('confidence_level', '')
-            if confidence == '고신뢰':
-                summary['high_confidence_count'] += 1
-            elif confidence == '중신뢰':
-                summary['medium_confidence_count'] += 1
+            if score > summary['max_technical_score']:
+                summary['max_technical_score'] = score
+            if score < summary['min_technical_score']:
+                summary['min_technical_score'] = score
+        
+        if scores:
+            summary['avg_technical_score'] = sum(scores) / len(scores)
         
         return summary
 
@@ -388,11 +296,6 @@ def enhanced_stock_selection(current_date=None) -> List[Dict[str, Any]]:
     """기술적 분석 기반 종목 선정"""
     selector = get_stock_selector()
     return selector.enhanced_stock_selection(current_date)
-
-def ai_enhanced_final_selection(entry_tickers: List[Dict[str, Any]], current_date=None) -> List[str]:
-    """AI 기반 최종 종목 선정"""
-    selector = get_stock_selector()
-    return selector.ai_enhanced_final_selection(entry_tickers, current_date)
 
 def select_stocks_for_buy(current_date=None) -> List[str]:
     """매수용 종목 선정 (전체 워크플로우)"""

@@ -12,7 +12,6 @@ from .portfolio import Portfolio
 from .performance import PerformanceAnalyzer, get_performance_analyzer
 from .data_validator import DataValidator, get_data_validator
 from ..data.fetcher import get_data_fetcher
-from ..analysis.ai_model import get_ai_manager
 from ..analysis.technical import get_technical_analyzer
 from ..strategy.selector import get_stock_selector
 
@@ -34,7 +33,6 @@ class BacktestEngine:
         # 모듈 인스턴스들
         self.portfolio = Portfolio(initial_capital, transaction_cost)
         self.data_fetcher = get_data_fetcher()
-        self.ai_manager = get_ai_manager()
         self.technical_analyzer = get_technical_analyzer()
         self.stock_selector = get_stock_selector()
         self.data_validator = get_data_validator()
@@ -44,13 +42,12 @@ class BacktestEngine:
         self.stock_selector.set_backtest_mode(True)
         
         # 백테스트 설정
-        self.ai_enabled = True
-        self.current_model = None
-        self.model_trained_date = None
+        self.ai_enabled = False  # AI 기능 비활성화
         
         print(f"🚀 모듈화된 백테스트 엔진 초기화 완료")
         print(f"   초기 자본: {initial_capital:,}원")
         print(f"   거래 비용: {transaction_cost*100:.1f}%")
+        print(f"   전략: 기술적 분석만 사용")
     
     def run_backtest(self, start_date: str, end_date: str, ai_enabled: bool = True) -> Dict[str, Any]:
         """
@@ -59,17 +56,17 @@ class BacktestEngine:
         Args:
             start_date: 시작 날짜 (YYYY-MM-DD)
             end_date: 종료 날짜 (YYYY-MM-DD)
-            ai_enabled: AI 기능 활성화 여부
+            ai_enabled: AI 기능 활성화 여부 (현재는 사용하지 않음)
             
         Returns:
             Dict: 백테스트 결과
         """
         print(f"🚀 백테스팅 시작: {start_date} ~ {end_date}")
-        print(f"🤖 AI 기능: {'활성화' if ai_enabled else '비활성화'}")
+        print(f"📊 기술적 분석 전략만 사용")
         print("=" * 60)
         
-        # AI 기능 설정
-        self.ai_enabled = ai_enabled
+        # AI 기능 비활성화
+        self.ai_enabled = False
         
         # 날짜 범위 생성
         start = pd.to_datetime(start_date)
@@ -86,13 +83,6 @@ class BacktestEngine:
             
             print(f"\n📅 {date_str} 처리 중... ({'월화수목금'[weekday]}요일)")
             
-            # 매주 월요일마다 AI 모델 재훈련 (AI 활성화된 경우)
-            if self.ai_enabled and (weekday == 0 or self.current_model is None):
-                self._retrain_ai_model(date_str)
-            
-            # AI 모델 사용 현황 출력
-            self._print_ai_status()
-            
             # 1. 보유 기간 업데이트
             self.portfolio.update_holding_periods()
             
@@ -107,30 +97,6 @@ class BacktestEngine:
         
         # 최종 성과 계산
         return self._finalize_backtest()
-    
-    def _retrain_ai_model(self, date_str: str):
-        """AI 모델 재훈련"""
-        print(f"🤖 {date_str} AI 모델 재훈련 시작...")
-        try:
-            temp_model = self.ai_manager.train_ai_model_at_date(date_str)
-            if temp_model is not None:
-                self.current_model = temp_model
-                self.model_trained_date = date_str
-                print(f"✅ AI 모델 훈련 완료 ({date_str})")
-            else:
-                print(f"❌ AI 모델 훈련 실패 - 이번 주는 이전 모델 사용 또는 기술적 분석만 사용")
-        except Exception as e:
-            print(f"❌ AI 모델 훈련 오류: {e}")
-    
-    def _print_ai_status(self):
-        """AI 모델 사용 현황 출력"""
-        if self.ai_enabled and self.current_model is not None:
-            model_accuracy = getattr(self.current_model, 'test_accuracy', 0)
-            model_quality = getattr(self.current_model, 'model_quality_score', 0)
-            print(f"🤖 AI 모델 사용 중 (훈련일: {self.model_trained_date})")
-            print(f"   📊 모델 정확도: {model_accuracy:.1%}, 품질점수: {model_quality:.1f}/100")
-        else:
-            print(f"📊 기술적 분석만 사용")
     
     def _execute_sell_strategy(self, current_date: str) -> Dict[str, Any]:
         """매도 전략 실행"""
@@ -165,23 +131,11 @@ class BacktestEngine:
                 sell_reason = f"손실제한 (손실률: {loss_rate*100:.1f}%)"
                 print(f"   🛑 {ticker}: 손실 제한 매도 - 손실률 {loss_rate*100:.1f}%")
             
-            # 기본 3일 룰 (손실 제한이 아닌 경우만)
+            # 기본 3일 룰
             elif holding_days >= 3:
                 should_sell = True
                 sell_reason = f"보유기간 ({holding_days}일)"
-                print(f"   → {ticker}: 3일 이상 보유로 매도 검토")
-                
-                # 기술적 홀드 시그널 체크 (3일차에만, 손실이 없는 경우만)
-                if holding_days == 3 and self.ai_enabled and loss_rate > -0.02:
-                    try:
-                        hold_signal = self.technical_analyzer.get_technical_hold_signal(ticker, current_date)
-                        
-                        if hold_signal >= 0.75:
-                            should_sell = False
-                            sell_reason = ""
-                            print(f"   → {ticker}: 기술적 분석 강홀드 신호로 1일 연장 (신호: {hold_signal:.3f})")
-                    except Exception as e:
-                        print(f"   → {ticker}: 홀드 시그널 계산 오류: {e}")
+                print(f"   → {ticker}: 3일 이상 보유로 매도")
             
             # 안전장치: 5일 이상은 무조건 매도
             if holding_days >= 5:
@@ -218,7 +172,7 @@ class BacktestEngine:
         
         print(f"📊 매수 전략 실행 - 사용 가능 슬롯: {available_slots}개")
         
-        # 종목 선정 (AI 향상 기능 포함)
+        # 종목 선정
         candidates = self._select_buy_candidates(current_date)
         
         if not candidates:
@@ -229,19 +183,19 @@ class BacktestEngine:
         return self._execute_buy_orders(candidates, available_slots, current_date)
     
     def _select_buy_candidates(self, current_date: str) -> List[Dict[str, Any]]:
-        """매수 후보 종목 선정"""
+        """매수 후보 종목 선정 - 기술적 분석만 사용"""
         try:
             # 백테스트 모드에서 현재 날짜 설정
             self.stock_selector.set_backtest_mode(True, current_date)
             
-            # 1단계: 기술적 분석 기반 1차 선정
+            # 기술적 분석 기반 선정
             entry_candidates = self.stock_selector.enhanced_stock_selection(current_date)
             
             if not entry_candidates:
                 print("📊 기술적 분석에서 선정된 종목이 없습니다.")
                 return []
             
-            # 데이터 검증 강화
+            # 데이터 검증
             validated_candidates = []
             for candidate in entry_candidates:
                 ticker = candidate['ticker']
@@ -252,18 +206,10 @@ class BacktestEngine:
             
             print(f"   ✅ 검증 통과: {len(validated_candidates)}개 종목")
             
-            # 2단계: AI 기반 최종 선정 (AI 활성화된 경우)
-            if self.ai_enabled and self.current_model is not None:
-                final_tickers = self.stock_selector.ai_enhanced_final_selection(
-                    validated_candidates, current_date
-                )
-                print(f"🤖 AI 선정 결과: {len(final_tickers)}개")
-                return final_tickers
-            else:
-                # AI 없으면 상위 5개
-                final_candidates = validated_candidates[:5]
-                print(f"📊 AI 모델 없음 - 기술적 분석 상위 {len(final_candidates)}개 선정")
-                return final_candidates
+            # 기술적 점수 기준으로 상위 5개 선정
+            final_candidates = validated_candidates[:5]
+            print(f"📊 기술적 분석 상위 {len(final_candidates)}개 선정")
+            return final_candidates
                 
         except Exception as e:
             print(f"❌ 종목 선정 오류: {e}")
@@ -297,7 +243,7 @@ class BacktestEngine:
                 print(f"   ❌ {ticker}: 현재가 조회 실패")
                 continue
             
-            # AI 점수 기반 투자 금액 조정
+            # 기술적 점수 기반 투자 금액 조정
             investment_amount = self._determine_investment_amount(
                 candidate, investment_per_stock
             )
@@ -313,8 +259,8 @@ class BacktestEngine:
             # 매수 실행
             additional_info = {
                 'technical_score': candidate.get('technical_score', 0.5),
-                'ai_score': candidate.get('ai_score', 0.5),
-                'confidence_level': candidate.get('confidence_level', '중립')
+                'momentum_score': candidate.get('momentum_score', 0.5),
+                'volume_signal': candidate.get('volume_signal', '정상')
             }
             
             success = self.portfolio.buy_stock(
@@ -331,18 +277,18 @@ class BacktestEngine:
     
     def _determine_investment_amount(self, candidate: Dict[str, Any], 
                                    base_amount: float) -> float:
-        """AI 점수 기반 투자 금액 결정"""
-        ai_score = candidate.get('ai_score', 0.5)
+        """기술적 점수 기반 투자 금액 결정"""
+        technical_score = candidate.get('technical_score', 0.5)
         
-        # AI 신뢰도 기반 투자 금액 조정 (백테스트 엔진과 동일)
-        if ai_score >= 0.80:           # 최고신뢰: 1.5배
-            multiplier = 1.5
-        elif ai_score >= 0.70:         # 고신뢰: 1.2배
-            multiplier = 1.2
-        elif ai_score >= 0.65:         # 중신뢰: 1.0배
+        # 기술적 점수 기반 투자 금액 조정
+        if technical_score >= 0.80:           # 매우 강한 신호: 1.3배
+            multiplier = 1.3
+        elif technical_score >= 0.70:         # 강한 신호: 1.1배
+            multiplier = 1.1
+        elif technical_score >= 0.60:         # 보통 신호: 1.0배
             multiplier = 1.0
-        else:                          # 저신뢰: 0.7배
-            multiplier = 0.7
+        else:                                 # 약한 신호: 0.8배
+            multiplier = 0.8
         
         return base_amount * multiplier
     
@@ -365,16 +311,8 @@ class BacktestEngine:
         additional_data = {
             'sold_count': sell_results['sold_count'],
             'bought_count': buy_results['bought_count'],
-            'ai_enabled': self.ai_enabled,
-            'model_trained_date': self.model_trained_date
+            'strategy': 'technical_only'
         }
-        
-        # AI 모델 정보 추가
-        if self.ai_enabled and self.current_model is not None:
-            additional_data.update({
-                'model_accuracy': getattr(self.current_model, 'test_accuracy', 0),
-                'model_quality': getattr(self.current_model, 'model_quality_score', 0)
-            })
         
         self.portfolio.record_daily_portfolio(date_str, portfolio_value, additional_data)
         
@@ -400,18 +338,12 @@ class BacktestEngine:
         results.update({
             'trade_history': trade_history,
             'portfolio_history': portfolio_history,
-            'final_cash': self.portfolio.cash
+            'final_cash': self.portfolio.cash,
+            'strategy': 'technical_only'
         })
         
         # 성과 요약 출력
         self.performance_analyzer.print_performance_summary()
-        
-        # AI 성과 분석 (AI 활성화된 경우)
-        if self.ai_enabled:
-            ai_performance = self.performance_analyzer.analyze_ai_performance(trade_history)
-            if ai_performance:
-                self.performance_analyzer.print_ai_performance_summary(ai_performance)
-                results['ai_performance'] = ai_performance
         
         return results
     
@@ -422,39 +354,38 @@ class BacktestEngine:
 
 # 편의 함수
 def run_backtest(start_date: str, end_date: str, initial_capital: float = 10_000_000,
-                transaction_cost: float = 0.003, ai_enabled: bool = True) -> Dict[str, Any]:
+                transaction_cost: float = 0.003) -> Dict[str, Any]:
     """
-    백테스트 실행 편의 함수
+    백테스트 실행 편의 함수 - 기술적 분석만 사용
     
     Args:
         start_date: 시작 날짜
         end_date: 종료 날짜
         initial_capital: 초기 자본
         transaction_cost: 거래 비용
-        ai_enabled: AI 기능 활성화
         
     Returns:
         Dict: 백테스트 결과
     """
     engine = BacktestEngine(initial_capital, transaction_cost)
-    return engine.run_backtest(start_date, end_date, ai_enabled)
+    return engine.run_backtest(start_date, end_date, ai_enabled=False)
 
 
 # 사용 예시
 if __name__ == "__main__":
-    # 모듈화된 백테스트 실행
+    # 모듈화된 백테스트 실행 - 기술적 분석만
     start_date = "2025-06-01"
     end_date = "2025-06-10"
     
     try:
-        results = run_backtest(start_date, end_date, ai_enabled=True)
+        results = run_backtest(start_date, end_date)
         
         # 결과 저장
         engine = BacktestEngine()
         engine.performance_analyzer.results = results
-        engine.save_results("modular_backtest_result.json")
+        engine.save_results("technical_only_backtest_result.json")
         
     except Exception as e:
-        print(f"❌ 모듈화된 백테스팅 실행 오류: {e}")
+        print(f"❌ 백테스팅 실행 오류: {e}")
         import traceback
         traceback.print_exc()

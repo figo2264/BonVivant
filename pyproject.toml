@@ -11,6 +11,7 @@ dependencies = [
     "lightgbm>=4.6.0",
     "numpy==1.24.3",
     "pandas>=2.0.0,<2.3.0",
+    "pandas-stubs==2.2.3.250527",
     "pykrx>=1.0.51",
     "python-dateutil>=2.9.0.post0",
     "pyyaml>=6.0.2",
