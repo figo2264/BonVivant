@@ -14,27 +14,31 @@ from .data_validator import DataValidator, get_data_validator
 from ..data.fetcher import get_data_fetcher
 from ..analysis.technical import get_technical_analyzer
 from ..strategy.selector import get_stock_selector
+from ..strategy.news_based_selector import get_news_based_selector
 
 
 class BacktestEngine:
     """모듈화된 백테스트 엔진 - hanlyang_stock 모듈 활용"""
     
-    def __init__(self, initial_capital: float = 10_000_000, transaction_cost: float = 0.003):
+    def __init__(self, initial_capital: float = 10_000_000, transaction_cost: float = 0.003, debug: bool = False):
         """
         백테스트 엔진 초기화
         
         Args:
             initial_capital: 초기 자본금 (기본 1000만원)
             transaction_cost: 거래 비용 (기본 0.3%)
+            debug: 디버그 모드
         """
         self.initial_capital = initial_capital
         self.transaction_cost = transaction_cost
+        self.debug = debug
         
         # 모듈 인스턴스들
         self.portfolio = Portfolio(initial_capital, transaction_cost)
         self.data_fetcher = get_data_fetcher()
         self.technical_analyzer = get_technical_analyzer()
         self.stock_selector = get_stock_selector()
+        self.news_selector = get_news_based_selector(debug=debug)  # 뉴스 기반 선택기 추가
         self.data_validator = get_data_validator()
         self.performance_analyzer = get_performance_analyzer()
         
@@ -43,13 +47,16 @@ class BacktestEngine:
         
         # 백테스트 설정
         self.ai_enabled = False  # AI 기능 비활성화
+        self.use_news_strategy = False  # 뉴스 전략 사용 여부
         
         print(f"🚀 모듈화된 백테스트 엔진 초기화 완료")
         print(f"   초기 자본: {initial_capital:,}원")
         print(f"   거래 비용: {transaction_cost*100:.1f}%")
-        print(f"   전략: 기술적 분석만 사용")
+        if debug:
+            print(f"   디버그 모드: 활성화")
     
-    def run_backtest(self, start_date: str, end_date: str, ai_enabled: bool = True) -> Dict[str, Any]:
+    def run_backtest(self, start_date: str, end_date: str, ai_enabled: bool = True, 
+                     use_news_strategy: bool = False) -> Dict[str, Any]:
         """
         백테스팅 실행 (모듈화된 버전)
         
@@ -57,12 +64,21 @@ class BacktestEngine:
             start_date: 시작 날짜 (YYYY-MM-DD)
             end_date: 종료 날짜 (YYYY-MM-DD)
             ai_enabled: AI 기능 활성화 여부 (현재는 사용하지 않음)
+            use_news_strategy: 뉴스 전략 사용 여부
             
         Returns:
             Dict: 백테스트 결과
         """
         print(f"🚀 백테스팅 시작: {start_date} ~ {end_date}")
-        print(f"📊 기술적 분석 전략만 사용")
+        
+        # 전략 설정
+        self.use_news_strategy = use_news_strategy
+        
+        if use_news_strategy:
+            print(f"📰 하이브리드 전략 사용 (기술적 분석 + 뉴스 감정 분석)")
+        else:
+            print(f"📊 기술적 분석 전략만 사용")
+        
         print("=" * 60)
         
         # AI 기능 비활성화
@@ -131,11 +147,22 @@ class BacktestEngine:
                 sell_reason = f"손실제한 (손실률: {loss_rate*100:.1f}%)"
                 print(f"   🛑 {ticker}: 손실 제한 매도 - 손실률 {loss_rate*100:.1f}%")
             
-            # 기본 3일 룰
-            elif holding_days >= 3:
-                should_sell = True
-                sell_reason = f"보유기간 ({holding_days}일)"
-                print(f"   → {ticker}: 3일 이상 보유로 매도")
+            # 뉴스 전략인 경우 보유 기간 확인
+            if self.use_news_strategy:
+                # 매수 시 저장된 뉴스 신호 확인
+                news_signal = holding.get('additional_info', {}).get('news_signal', {})
+                planned_holding_days = news_signal.get('holding_days', 5)
+                
+                if holding_days >= planned_holding_days:
+                    should_sell = True
+                    sell_reason = f"뉴스 전략 목표 보유기간 ({planned_holding_days}일) 달성"
+                    print(f"   → {ticker}: 뉴스 전략 목표 기간 달성으로 매도")
+            else:
+                # 기본 3일 룰
+                if holding_days >= 3:
+                    should_sell = True
+                    sell_reason = f"보유기간 ({holding_days}일)"
+                    print(f"   → {ticker}: 3일 이상 보유로 매도")
             
             # 안전장치: 5일 이상은 무조건 매도
             if holding_days >= 5:
@@ -183,8 +210,11 @@ class BacktestEngine:
         return self._execute_buy_orders(candidates, available_slots, current_date)
     
     def _select_buy_candidates(self, current_date: str) -> List[Dict[str, Any]]:
-        """매수 후보 종목 선정 - 기술적 분석만 사용"""
+        """매수 후보 종목 선정 - 기술적 분석 + 뉴스 감정 평가 결합"""
         try:
+            # 1단계: 항상 기술적 분석으로 기본 선정
+            print("📊 기술적 분석 기반 종목 선정...")
+            
             # 백테스트 모드에서 현재 날짜 설정
             self.stock_selector.set_backtest_mode(True, current_date)
             
@@ -206,13 +236,110 @@ class BacktestEngine:
             
             print(f"   ✅ 검증 통과: {len(validated_candidates)}개 종목")
             
-            # 기술적 점수 기준으로 상위 5개 선정
-            final_candidates = validated_candidates[:5]
-            print(f"📊 기술적 분석 상위 {len(final_candidates)}개 선정")
-            return final_candidates
+            # 2단계: 뉴스 전략 사용 시 뉴스 감정 평가 추가
+            if self.use_news_strategy:
+                print("\n📰 선정된 종목에 대한 뉴스 감정 평가 실행...")
+                
+                # NewsAnalyzer 인스턴스 가져오기
+                from ..analysis.news_sentiment import get_news_analyzer
+                news_analyzer = get_news_analyzer(debug=self.debug)
+                
+                # 각 종목에 대해 뉴스 감정 평가 수행
+                enhanced_candidates = []
+                for candidate in validated_candidates:
+                    ticker = candidate['ticker']
+                    
+                    try:
+                        # 회사명 조회
+                        company_name = self.news_selector._get_company_name(ticker)
+                        print(f"\n   🔍 {ticker} ({company_name}) 뉴스 분석 중...")
+                        
+                        # 뉴스 수집 및 분석
+                        news_list = news_analyzer.fetch_ticker_news(ticker, company_name, current_date)
+                        
+                        if news_list:
+                            print(f"      📰 {len(news_list)}개 뉴스 수집")
+                            
+                            # 감정 분석
+                            news_analysis = news_analyzer.analyze_news_sentiment(
+                                news_list, ticker, company_name
+                            )
+                            
+                            # 뉴스 분석 결과를 candidate에 추가
+                            candidate['news_analysis'] = news_analysis
+                            candidate['news_score'] = news_analysis.get('avg_confidence', 0.5)
+                            candidate['news_sentiment'] = news_analysis.get('sentiment', '중립')
+                            
+                            # 종합 점수 계산 (기술적 점수 70% + 뉴스 점수 30%)
+                            technical_weight = 0.7
+                            news_weight = 0.3
+                            candidate['combined_score'] = (
+                                candidate['technical_score'] * technical_weight + 
+                                candidate['news_score'] * news_weight
+                            )
+                            
+                            print(f"      ✅ 뉴스 감정: {candidate['news_sentiment']}, "
+                                  f"신뢰도: {candidate['news_score']*100:.1f}%")
+                            print(f"      📊 종합 점수: {candidate['combined_score']*100:.1f}% "
+                                  f"(기술적: {candidate['technical_score']*100:.1f}%, "
+                                  f"뉴스: {candidate['news_score']*100:.1f}%)")
+                            
+                            # 뉴스 신호 정보 추가 (보유 기간 등)
+                            candidate['news_signal'] = {
+                                'ticker': ticker,
+                                'company_name': company_name,
+                                'sentiment': candidate['news_sentiment'],
+                                'confidence': candidate['news_score'],
+                                'holding_days': self.news_selector.optimal_holding_days,
+                                'predictions': {
+                                    f'{d}d': news_analysis.get(f'prob_{d}', 0.5) 
+                                    for d in [1, 5, 10, 20]
+                                }
+                            }
+                        else:
+                            print(f"      ⚠️ 뉴스 없음 - 기술적 점수만 사용")
+                            candidate['news_score'] = 0.5  # 중립값
+                            candidate['news_sentiment'] = '중립'
+                            candidate['combined_score'] = candidate['technical_score']
+                        
+                        enhanced_candidates.append(candidate)
+                        
+                    except Exception as e:
+                        print(f"      ❌ 뉴스 분석 오류: {e}")
+                        # 오류 시 기술적 점수만 사용
+                        candidate['news_score'] = 0.5
+                        candidate['news_sentiment'] = '중립'
+                        candidate['combined_score'] = candidate['technical_score']
+                        enhanced_candidates.append(candidate)
+                
+                # 종합 점수 기준으로 정렬
+                enhanced_candidates.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+                
+                # 최소 기준 필터링 (종합 점수 0.6 이상만)
+                final_candidates = [c for c in enhanced_candidates if c.get('combined_score', 0) >= 0.6]
+                
+                if not final_candidates and enhanced_candidates:
+                    # 기준에 맞는 종목이 없으면 상위 3개만 선택
+                    final_candidates = enhanced_candidates[:3]
+                
+                print(f"\n📊 최종 선정: {len(final_candidates)}개 종목 (종합 점수 0.6 이상)")
+                for i, cand in enumerate(final_candidates[:5]):
+                    print(f"   {i+1}. {cand['ticker']}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
+                          f"(기술적 {cand['technical_score']*100:.1f}%, "
+                          f"뉴스 {cand.get('news_score', 0.5)*100:.1f}%)")
+                
+                return final_candidates[:5]  # 최대 5개
+                
+            else:
+                # 뉴스 전략 미사용 시 기술적 점수 기준으로 상위 5개만
+                final_candidates = validated_candidates[:5]
+                print(f"📊 기술적 분석 상위 {len(final_candidates)}개 선정")
+                return final_candidates
                 
         except Exception as e:
             print(f"❌ 종목 선정 오류: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def _execute_buy_orders(self, candidates: List[Dict[str, Any]], available_slots: int, 
@@ -263,6 +390,16 @@ class BacktestEngine:
                 'volume_signal': candidate.get('volume_signal', '정상')
             }
             
+            # 뉴스 전략인 경우 뉴스 정보 추가
+            if self.use_news_strategy:
+                additional_info['news_score'] = candidate.get('news_score', 0.5)
+                additional_info['news_sentiment'] = candidate.get('news_sentiment', '중립')
+                additional_info['combined_score'] = candidate.get('combined_score', candidate.get('technical_score', 0.5))
+                
+                # 뉴스 신호 정보 추가
+                if 'news_signal' in candidate:
+                    additional_info['news_signal'] = candidate['news_signal']
+            
             success = self.portfolio.buy_stock(
                 ticker, current_price, investment_amount, current_date, additional_info
             )
@@ -270,25 +407,40 @@ class BacktestEngine:
             if success:
                 bought_count += 1
                 total_invested += investment_amount
-                print(f"✅ {ticker} 매수 완료")
+                
+                # 상세 매수 정보 출력
+                if self.use_news_strategy:
+                    print(f"✅ {ticker} 매수 완료 - 종합점수: {candidate.get('combined_score', 0)*100:.1f}% "
+                          f"(기술적: {candidate.get('technical_score', 0)*100:.1f}%, "
+                          f"뉴스: {candidate.get('news_score', 0)*100:.1f}%)")
+                else:
+                    print(f"✅ {ticker} 매수 완료 - 기술적 점수: {candidate.get('technical_score', 0)*100:.1f}%")
         
         print(f"📊 매수 완료: {bought_count}개 종목, 총 투자 {total_invested:,.0f}원")
         return {'bought_count': bought_count, 'total_invested': total_invested}
     
     def _determine_investment_amount(self, candidate: Dict[str, Any], 
                                    base_amount: float) -> float:
-        """기술적 점수 기반 투자 금액 결정"""
-        technical_score = candidate.get('technical_score', 0.5)
+        """종합 점수 기반 투자 금액 결정"""
+        # 뉴스 전략 사용 시 종합 점수 사용, 아니면 기술적 점수만 사용
+        if self.use_news_strategy and 'combined_score' in candidate:
+            score = candidate.get('combined_score', 0.5)
+        else:
+            score = candidate.get('technical_score', 0.5)
         
-        # 기술적 점수 기반 투자 금액 조정
-        if technical_score >= 0.80:           # 매우 강한 신호: 1.3배
+        # 점수 기반 투자 금액 조정
+        if score >= 0.80:           # 매우 강한 신호: 1.3배
             multiplier = 1.3
-        elif technical_score >= 0.70:         # 강한 신호: 1.1배
+        elif score >= 0.70:         # 강한 신호: 1.1배
             multiplier = 1.1
-        elif technical_score >= 0.60:         # 보통 신호: 1.0배
+        elif score >= 0.60:         # 보통 신호: 1.0배
             multiplier = 1.0
-        else:                                 # 약한 신호: 0.8배
+        else:                       # 약한 신호: 0.8배
             multiplier = 0.8
+        
+        # 뉴스 감정이 부정적인 경우 추가 감소
+        if self.use_news_strategy and candidate.get('news_sentiment') == '부정':
+            multiplier *= 0.7
         
         return base_amount * multiplier
     
@@ -311,7 +463,7 @@ class BacktestEngine:
         additional_data = {
             'sold_count': sell_results['sold_count'],
             'bought_count': buy_results['bought_count'],
-            'strategy': 'technical_only'
+            'strategy': 'news_based' if self.use_news_strategy else 'technical_only'
         }
         
         self.portfolio.record_daily_portfolio(date_str, portfolio_value, additional_data)
@@ -339,7 +491,7 @@ class BacktestEngine:
             'trade_history': trade_history,
             'portfolio_history': portfolio_history,
             'final_cash': self.portfolio.cash,
-            'strategy': 'technical_only'
+            'strategy': 'news_based' if self.use_news_strategy else 'technical_only'
         })
         
         # 성과 요약 출력

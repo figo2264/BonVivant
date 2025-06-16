@@ -13,8 +13,8 @@ from hanlyang_stock.utils.notification import get_notifier
 
 
 def main():
-    """메인 실행 함수 - 백테스트 엔진의 기술적 분석 강화 기능 적용"""
-    print("🚀 한량 주식 전략 시작! (기술적 분석 + 데이터 검증 + 손실 제한 완전 적용)")
+    """메인 실행 함수 - 하이브리드 전략 (기술적 분석 + 뉴스 감정 분석)"""
+    print("🚀 한량 주식 하이브리드 전략 시작! (기술적 분석 + 뉴스 감정 분석)")
     
     try:
         # 설정 초기화
@@ -62,15 +62,42 @@ def main():
             print(f"   📊 변동성 제어: {'활성화' if strategy_data['volatility_control'] else '비활성화'}")
             print(f"   🛡️ 급락 방지: {'활성화' if strategy_data['crash_protection'] else '비활성화'}")
         
+        # 6. 하이브리드 전략 설정 (기술적 분석 + 뉴스 감정 분석)
+        if 'hybrid_strategy_enabled' not in strategy_data:
+            strategy_data['hybrid_strategy_enabled'] = True
+            strategy_data['news_weight'] = 0.3  # 뉴스 가중치 30%
+            strategy_data['technical_weight'] = 0.7  # 기술적 가중치 70%
+            strategy_data['min_combined_score'] = 0.6  # 최소 종합 점수
+            print("✅ 하이브리드 전략 활성화 (기술적 70% + 뉴스 30%)")
+            print(f"   📊 기술적 가중치: {strategy_data['technical_weight']*100:.0f}%")
+            print(f"   📰 뉴스 가중치: {strategy_data['news_weight']*100:.0f}%")
+            print(f"   🎯 최소 종합 점수: {strategy_data['min_combined_score']*100:.0f}%")
+        
+        # 7. 최대 선정 종목 수 설정
+        if 'max_selections' not in strategy_data:
+            strategy_data['max_selections'] = 3  # 최대 3개 종목 선정
+            print("✅ 최대 선정 종목 수: 3개")
+        
+        # 8. 뉴스 디버깅 모드 설정
+        if 'debug_news' not in strategy_data:
+            strategy_data['debug_news'] = True  # 뉴스 분석 디버깅 모드 활성화
+            print("🔍 뉴스 분석 디버깅 모드: 활성화")
+        
         # 설정 저장
         data_manager.save()
         
-        print("✅ 모든 모듈 초기화 완료 (백테스트 엔진 기술적 분석 기능 완전 적용)")
+        print("✅ 모든 모듈 초기화 완료 (하이브리드 전략 적용)")
         print(f"   📊 데이터 검증 강화: {'활성화' if strategy_data.get('enhanced_data_validation') else '비활성화'}")
         print(f"   🛑 손실 제한: {'활성화' if strategy_data.get('stop_loss_enabled') else '비활성화'} ({strategy_data.get('stop_loss_rate', -0.05)*100:.1f}%)")
         print(f"   🔬 강화된 기술 분석: {'활성화' if strategy_data.get('enhanced_analysis_enabled') else '비활성화'}")
         print(f"   🎯 안정성 타겟: {'활성화' if strategy_data.get('stability_focused_target') else '비활성화'}")
         print(f"   🔍 고급 홀드 시그널: {'활성화' if strategy_data.get('advanced_hold_signal') else '비활성화'}")
+        print(f"   🤝 하이브리드 전략: {'활성화' if strategy_data.get('hybrid_strategy_enabled') else '비활성화'}")
+        if strategy_data.get('hybrid_strategy_enabled'):
+            print(f"      - 기술적 분석: {strategy_data.get('technical_weight', 0.7)*100:.0f}%")
+            print(f"      - 뉴스 감정: {strategy_data.get('news_weight', 0.3)*100:.0f}%")
+        print(f"   📈 최대 선정 종목: {strategy_data.get('max_selections', 3)}개")
+        print(f"   🔍 뉴스 디버깅 모드: {'활성화' if strategy_data.get('debug_news') else '비활성화'}")
         
     except Exception as e:
         print(f"❌ 초기화 오류: {e}")
@@ -132,19 +159,24 @@ def main():
         elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
         # elif True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
-                print("🚀 오후 매수 전략 실행 시작! (강화된 기술적 분석 + 데이터 검증 완전 적용)")
+                print("🚀 오후 매수 전략 실행 시작! (하이브리드: 기술적 분석 + 뉴스 감정 분석)")
                 
                 # 🔧 강화된 매수 전략 실행 (백테스트 엔진 기술적 분석 기능 적용)
                 strategy_data = data_manager.get_data()
                 
-                # 매수 전략 설정 (기술적 분석 기능만 활성화)
+                # 매수 전략 설정 (기술적 분석 + 뉴스 감정 분석)
                 buy_config = {
                     'enhanced_data_validation': strategy_data.get('enhanced_data_validation', True),
                     'enhanced_analysis_enabled': strategy_data.get('enhanced_analysis_enabled', True),
                     'stability_focused_target': strategy_data.get('stability_focused_target', True),
                     'profit_threshold': strategy_data.get('profit_threshold', 0.005),
                     'volatility_control': strategy_data.get('volatility_control', True),
-                    'crash_protection': strategy_data.get('crash_protection', True)
+                    'crash_protection': strategy_data.get('crash_protection', True),
+                    'hybrid_strategy_enabled': strategy_data.get('hybrid_strategy_enabled', True),
+                    'news_weight': strategy_data.get('news_weight', 0.3),
+                    'technical_weight': strategy_data.get('technical_weight', 0.7),
+                    'min_combined_score': strategy_data.get('min_combined_score', 0.6),
+                    'debug_news': strategy_data.get('debug_news', True)  # 뉴스 디버깅 모드
                 }
                 
                 buy_executor = BuyExecutor(**buy_config)
@@ -152,7 +184,10 @@ def main():
                 
                 print(f"✅ 매수 전략 완료: {buy_results.get('bought_count', 0)}개 종목 매수")
                 print(f"   💳 총 투자: {buy_results.get('total_investment', 0):,}원")
-                print(f"   📊 기술적 분석 기반 선정")
+                if strategy_data.get('hybrid_strategy_enabled'):
+                    print(f"   📊 하이브리드 전략 기반 선정 (기술적 + 뉴스)")
+                else:
+                    print(f"   📊 기술적 분석 기반 선정")
                 
                 executed_date = current_date  # 실행 완료 표시
                 break

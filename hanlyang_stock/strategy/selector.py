@@ -139,8 +139,8 @@ class StockSelector:
             
             # 기술적 점수가 0.6 이상인 종목만 선정
             selected_candidates = []
-            for candidate in enhanced_candidates[:15]:  # 상위 15개 확인
-                if candidate['technical_score'] >= 0.6 and len(selected_candidates) < 10:
+            for candidate in enhanced_candidates[:10]:  # 상위 10개 확인
+                if candidate['technical_score'] >= 0.6 and len(selected_candidates) < 5:  # 1차 선정도 5개로 축소
                     selected_candidates.append(candidate)
             
             print(f"🎯 기술적 분석 최종 선정: {len(selected_candidates)}개 종목")
@@ -168,7 +168,7 @@ class StockSelector:
         
         # 설정 로드
         strategy_data = self.data_manager.get_data()
-        max_selections = strategy_data.get('max_selections', 5)
+        max_selections = strategy_data.get('max_selections', 3)  # 기본값을 10에서 3으로 변경
         min_technical_score = strategy_data.get('min_technical_score', 0.65)
         
         # 기준을 만족하는 종목만 선정

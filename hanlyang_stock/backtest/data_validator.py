@@ -8,6 +8,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from ..data.fetcher import get_data_fetcher
+from ..data.backtest_fetcher import get_backtest_data_fetcher
 
 
 class DataValidator:
@@ -15,6 +16,7 @@ class DataValidator:
     
     def __init__(self):
         self.data_fetcher = get_data_fetcher()
+        self.backtest_fetcher = get_backtest_data_fetcher()  # 백테스트 전용 페처
     
     def validate_ticker_data(self, ticker: str, current_date: str = None, min_days: int = 5) -> bool:
         """
@@ -29,18 +31,20 @@ class DataValidator:
             bool: 데이터 유효성 여부
         """
         try:
-            # 1. 기본 데이터 조회 (더 많은 데이터로 조회)
-            data = self.data_fetcher.get_past_data_enhanced(ticker, n=min_days * 3)  # 여유있게 조회
+            # 1. 기본 데이터 조회 (백테스트 모드 구분)
+            if current_date:
+                # 백테스트 모드: 특정 날짜 기준 데이터 조회
+                data = self.backtest_fetcher.get_past_data_for_date(ticker, current_date, n=min_days * 3)
+            else:
+                # 실시간 모드: 현재 기준 데이터 조회
+                data = self.data_fetcher.get_past_data_enhanced(ticker, n=min_days * 3)
+                
             if data.empty:
                 print(f"⚠️ {ticker}: 기본 데이터 조회 실패")
                 return False
             
-            # 2. 현재 날짜 이전 데이터만 필터링 (백테스트용)
-            if current_date:
-                current_date_pd = pd.to_datetime(current_date)
-                valid_data = data[pd.to_datetime(data['timestamp']) <= current_date_pd]
-            else:
-                valid_data = data
+            # 2. 백테스트 모드에서는 이미 필터링된 데이터이므로 추가 필터링 불필요
+            valid_data = data
             
             # 3. 최소 데이터 개수 확인
             if len(valid_data) < min_days:
@@ -79,7 +83,7 @@ class DataValidator:
                 print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
                 return False
             
-            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
+            # print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
             return True
             
         except Exception as e:
@@ -104,21 +108,13 @@ class DataValidator:
             if buy_price <= 0:
                 return False, 0, 0
             
-            # 현재가 조회
-            current_data = self.data_fetcher.get_past_data_enhanced(ticker, n=5)
-            if current_data.empty:
+            # 백테스트 모드에서는 특정 날짜의 가격 조회
+            current_price = self.backtest_fetcher.get_valid_price_for_date(ticker, current_date)
+            
+            if not current_price:
                 return False, 0, 0
             
-            # 현재 날짜 이전 데이터만 사용
-            current_date_pd = pd.to_datetime(current_date)
-            valid_data = current_data[pd.to_datetime(current_data['timestamp']) <= current_date_pd]
-            
-            if valid_data.empty:
-                return False, 0, 0
-            
-            current_price = valid_data.iloc[-1]['close']
             loss_rate = (current_price - buy_price) / buy_price
-            
             should_sell = loss_rate <= stop_loss_rate
             
             return should_sell, current_price, loss_rate
@@ -177,29 +173,27 @@ class DataValidator:
             float: 유효한 가격 또는 None
         """
         try:
-            # 데이터 조회
-            data = self.data_fetcher.get_past_data_enhanced(ticker, n=5)
-            if data.empty:
-                return None
-            
-            # 현재 날짜 이전 데이터 필터링
-            current_date_pd = pd.to_datetime(current_date)
-            valid_data = data[pd.to_datetime(data['timestamp']) <= current_date_pd]
-            
-            if valid_data.empty:
-                return None
-            
-            price = valid_data.iloc[-1]['close']
-            
-            # 가격 유효성 검증
-            if price <= 0 or not np.isfinite(price):
-                return None
-            
-            # 가격 범위 검증
-            if price < 100 or price > 1_000_000:  # 100원 ~ 100만원
-                return None
-            
-            return float(price)
+            # 백테스트 모드에서는 백테스트 전용 메서드 사용
+            if current_date:
+                price = self.backtest_fetcher.get_valid_price_for_date(ticker, current_date)
+                return price
+            else:
+                # 실시간 모드
+                data = self.data_fetcher.get_past_data_enhanced(ticker, n=1)
+                if data.empty:
+                    return None
+                
+                price = data.iloc[-1]['close']
+                
+                # 가격 유효성 검증
+                if price <= 0 or not np.isfinite(price):
+                    return None
+                
+                # 가격 범위 검증
+                if price < 100 or price > 1_000_000:  # 100원 ~ 100만원
+                    return None
+                
+                return float(price)
             
         except Exception as e:
             print(f"❌ {ticker} 가격 조회 오류: {e}")

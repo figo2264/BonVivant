@@ -281,14 +281,32 @@ class SellExecutor:
 
 
 class BuyExecutor:
-    """매수 전략 실행 클래스 - 백테스트 엔진의 모든 기능 완전 적용"""
+    """매수 전략 실행 클래스 - 하이브리드 전략 지원 (기술적 분석 + 뉴스 감정 분석)"""
     
-    def __init__(self):
+    def __init__(self, 
+                 hybrid_strategy_enabled: bool = False,
+                 news_weight: float = 0.3,
+                 technical_weight: float = 0.7,
+                 min_combined_score: float = 0.6,
+                 debug_news: bool = True,
+                 **kwargs):
         self.data_fetcher = get_data_fetcher()
         self.data_manager = get_data_manager()
         self.notifier = get_notifier()
         self.stock_selector = get_stock_selector()
         self.ht = get_hantustock()
+        
+        # 하이브리드 전략 설정
+        self.hybrid_strategy_enabled = hybrid_strategy_enabled
+        self.news_weight = news_weight
+        self.technical_weight = technical_weight
+        self.min_combined_score = min_combined_score
+        self.debug_news = debug_news
+        
+        # 뉴스 분석기 (하이브리드 전략 사용 시)
+        if self.hybrid_strategy_enabled:
+            from ..analysis.news_sentiment import get_news_analyzer
+            self.news_analyzer = get_news_analyzer(debug=debug_news)
     
     def execute(self) -> Dict[str, Any]:
         """
@@ -330,27 +348,155 @@ class BuyExecutor:
         print("✅ 오후 매수 전략 실행 완료!")
         return buy_results
     
-    def _select_buy_candidates(self, current_holdings: Dict[str, int]) -> List[str]:
-        """매수 후보 종목 선정 (데이터 검증 강화)"""
+    def _select_buy_candidates(self, current_holdings: Dict[str, int]) -> List[Dict[str, Any]]:
+        """매수 후보 종목 선정 (하이브리드 전략 지원)"""
         # 종목 선정 (백테스트 엔진 로직 적용)
         final_tickers = self.stock_selector.select_stocks_for_buy()
         
-        # 슬랙 알림: 종목 선정 완료
-        if final_tickers:
+        if not final_tickers:
+            print("📊 기술적 분석에서 선정된 종목이 없습니다.")
+            return []
+        
+        print(f"📊 기술적 분석 선정: {len(final_tickers)}개 종목")
+        
+        # 현재 보유중인 종목은 매수 후보에서 제외
+        current_holdings_set = set(current_holdings.keys())
+        technical_candidates = [t for t in final_tickers if t not in current_holdings_set]
+        
+        if not technical_candidates:
+            print("📊 이미 보유 중인 종목을 제외하면 매수 대상이 없습니다.")
+            return []
+        
+        # 하이브리드 전략 적용
+        if self.hybrid_strategy_enabled:
+            print("\n📰 하이브리드 전략: 뉴스 감정 분석 추가...")
+            enhanced_candidates = self._apply_hybrid_strategy(technical_candidates)
+            
+            # 슬랙 알림: 하이브리드 전략 선정 완료
+            if enhanced_candidates:
+                summary = self.stock_selector.get_selection_summary()
+                self.notifier.notify_stock_selection(
+                    analyzed_count=summary['technical_analysis_count'],
+                    ai_selected_count=len(enhanced_candidates),
+                    final_count=len(enhanced_candidates),
+                    selected_tickers=[c['ticker'] for c in enhanced_candidates]
+                )
+            
+            return enhanced_candidates
+        else:
+            # 기존 방식: 기술적 분석만
+            # 슬랙 알림: 종목 선정 완료
             summary = self.stock_selector.get_selection_summary()
             self.notifier.notify_stock_selection(
                 analyzed_count=summary['technical_analysis_count'],
                 ai_selected_count=summary['ai_predictions_count'],
-                final_count=len(final_tickers),
-                selected_tickers=final_tickers
+                final_count=len(technical_candidates),
+                selected_tickers=technical_candidates
             )
+            
+            # 딕셔너리 형태로 변환
+            return [{'ticker': t} for t in technical_candidates]
+    
+    def _apply_hybrid_strategy(self, technical_candidates: List[str]) -> List[Dict[str, Any]]:
+        """하이브리드 전략 적용: 기술적 분석 + 뉴스 감정 분석"""
+        from datetime import datetime
+        from pykrx import stock
         
-        # 현재 보유중인 종목은 매수 후보에서 제외
-        current_holdings_set = set(current_holdings.keys())
-        final_buy_tickers = [t for t in final_tickers if t not in current_holdings_set]
+        enhanced_candidates = []
+        current_date = datetime.now().strftime('%Y-%m-%d')
         
-        print(f"📥 최종 매수 대상: {len(final_buy_tickers)}개")
-        return final_buy_tickers
+        for ticker in technical_candidates:
+            try:
+                # 회사명 조회
+                company_name = stock.get_market_ticker_name(ticker)
+                if not company_name:
+                    company_name = ticker
+                
+                print(f"\n🔍 {ticker} ({company_name}) 뉴스 분석 중...")
+                
+                # 뉴스 수집 및 분석
+                news_list = self.news_analyzer.fetch_ticker_news(ticker, company_name, current_date)
+                
+                # AI 점수 가져오기 (기술적 분석에서의 점수)
+                strategy_data = self.data_manager.get_data()
+                ai_predictions = strategy_data.get('ai_predictions', {})
+                technical_score = ai_predictions.get(ticker, {}).get('score', 0.7)
+                
+                if news_list:
+                    print(f"   📰 {len(news_list)}개 뉴스 수집")
+                    
+                    # 감정 분석
+                    news_analysis = self.news_analyzer.analyze_news_sentiment(
+                        news_list, ticker, company_name
+                    )
+                    
+                    news_score = news_analysis.get('avg_confidence', 0.5)
+                    news_sentiment = news_analysis.get('sentiment', '중립')
+                    
+                    # 종합 점수 계산
+                    combined_score = (
+                        technical_score * self.technical_weight + 
+                        news_score * self.news_weight
+                    )
+                    
+                    print(f"   ✅ 뉴스 감정: {news_sentiment}, 신뢰도: {news_score*100:.1f}%")
+                    print(f"   📊 종합 점수: {combined_score*100:.1f}% "
+                          f"(기술적: {technical_score*100:.1f}%, 뉴스: {news_score*100:.1f}%)")
+                    
+                    # 최소 점수 기준 충족 확인
+                    if combined_score >= self.min_combined_score:
+                        enhanced_candidates.append({
+                            'ticker': ticker,
+                            'company_name': company_name,
+                            'technical_score': technical_score,
+                            'news_score': news_score,
+                            'news_sentiment': news_sentiment,
+                            'combined_score': combined_score,
+                            'news_analysis': news_analysis
+                        })
+                    else:
+                        print(f"   ❌ 종합 점수 {combined_score*100:.1f}% < {self.min_combined_score*100:.1f}% (기준 미달)")
+                else:
+                    print(f"   ⚠️ 뉴스 없음 - 기술적 점수만 사용")
+                    # 뉴스가 없는 경우 기술적 점수만으로 평가
+                    combined_score = technical_score
+                    
+                    if combined_score >= self.min_combined_score:
+                        enhanced_candidates.append({
+                            'ticker': ticker,
+                            'company_name': company_name,
+                            'technical_score': technical_score,
+                            'news_score': 0.5,  # 중립값
+                            'news_sentiment': '중립',
+                            'combined_score': combined_score,
+                            'news_analysis': None
+                        })
+                        
+            except Exception as e:
+                print(f"   ❌ 뉴스 분석 오류: {e}")
+                # 오류 시 기술적 점수만 사용
+                combined_score = technical_score
+                
+                if combined_score >= self.min_combined_score:
+                    enhanced_candidates.append({
+                        'ticker': ticker,
+                        'technical_score': technical_score,
+                        'news_score': 0.5,
+                        'news_sentiment': '중립',
+                        'combined_score': combined_score,
+                        'news_analysis': None
+                    })
+        
+        # 종합 점수 기준으로 정렬
+        enhanced_candidates.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+        
+        print(f"\n📊 하이브리드 전략 최종 선정: {len(enhanced_candidates)}개 종목")
+        for i, cand in enumerate(enhanced_candidates[:5]):
+            print(f"   {i+1}. {cand['ticker']}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
+                  f"(기술적 {cand['technical_score']*100:.1f}%, "
+                  f"뉴스 {cand.get('news_score', 0.5)*100:.1f}%)")
+        
+        return enhanced_candidates
     
     def _check_balance(self) -> Dict[str, Any]:
         """계좌 잔고 확인"""
@@ -363,12 +509,12 @@ class BuyExecutor:
             self.notifier.notify_balance_check_failure(str(e))
             return {'success': False, 'balance': 0}
     
-    def _execute_buys(self, buy_candidates: List[str], current_balance: float) -> Dict[str, Any]:
-        """매수 실행 - 백테스트 엔진 로직 완전 적용 (데이터 검증 강화)"""
+    def _execute_buys(self, buy_candidates: List[Any], current_balance: float) -> Dict[str, Any]:
+        """매수 실행 - 백테스트 엔진 로직 완전 적용 (하이브리드 전략 지원)"""
         bought_tickers = []
         total_invested = 0
         confidence_stats = {}
-        max_positions = 5  # 최대 보유 종목 수
+        max_positions = 10  # 최대 보유 종목 수
         
         strategy_data = self.data_manager.get_data()
         
@@ -388,9 +534,12 @@ class BuyExecutor:
         
         # 🔧 데이터 검증된 후보만 필터링 (백테스트 엔진 기능)
         validated_candidates = []
-        for ticker in buy_candidates:
+        for candidate in buy_candidates:
+            # 하이브리드 전략인 경우 딕셔너리, 아닌 경우 문자열
+            ticker = candidate['ticker'] if isinstance(candidate, dict) else candidate
+            
             if validate_ticker_data(ticker):
-                validated_candidates.append(ticker)
+                validated_candidates.append(candidate)
             else:
                 print(f"   ❌ {ticker}: 데이터 검증 실패 - 매수 후보에서 제외")
         
@@ -403,10 +552,13 @@ class BuyExecutor:
         print(f"   사용 가능 현금: {available_cash:,.0f}원")
         print(f"   종목당 기본 투자: {investment_per_stock:,.0f}원")
         
-        for ticker in validated_candidates[:available_slots]:
+        for candidate in validated_candidates[:available_slots]:
             try:
+                # 티커 추출
+                ticker = candidate['ticker'] if isinstance(candidate, dict) else candidate
+                
                 # AI 점수 및 투자 금액 결정
-                investment_info = self._determine_investment_amount(ticker, strategy_data)
+                investment_info = self._determine_investment_amount(ticker, strategy_data, candidate)
                 
                 # 투자 가능 금액 확인
                 remaining_balance = current_balance - total_invested - 2_000_000  # 200만원 안전자금
@@ -417,7 +569,13 @@ class BuyExecutor:
                 print(f"   🛡️ 안전자금: 2,000,000원")
                 print(f"   💵 투자가능: {remaining_balance:,}원")
                 print(f"   🎯 계획투자: {investment_info['amount']:,}원")
-                print(f"   🤖 AI점수: {investment_info['ai_score']:.3f} ({investment_info['confidence_level']})")
+                
+                if investment_info.get('is_hybrid'):
+                    print(f"   🤝 하이브리드 점수: {investment_info['ai_score']:.3f} ({investment_info['confidence_level']})")
+                    print(f"      - 기술적: {investment_info['technical_score']:.3f}")
+                    print(f"      - 뉴스: {investment_info['news_score']:.3f} ({investment_info['news_sentiment']})")
+                else:
+                    print(f"   🤖 AI점수: {investment_info['ai_score']:.3f} ({investment_info['confidence_level']})")
                 
                 if remaining_balance <= 0:
                     print(f"⚠️ {ticker}: 투자 가능 금액 부족 (잔액: {remaining_balance:,}원)")
@@ -458,7 +616,10 @@ class BuyExecutor:
                 actual_investment = quantity_to_buy * current_price
                 print(f"   💸 실제투자: {actual_investment:,}원")
                 
-                print(f"📥 {ticker} AI 신뢰도 기반 매수 실행:")
+                if self.hybrid_strategy_enabled:
+                    print(f"📥 {ticker} 하이브리드 전략 기반 매수 실행:")
+                else:
+                    print(f"📥 {ticker} AI 신뢰도 기반 매수 실행:")
                 print(f"   수량: {quantity_to_buy:,}주")
                 print(f"   단가: {current_price:,}원")
                 print(f"   투자금액: {actual_investment:,}원")
@@ -484,14 +645,25 @@ class BuyExecutor:
                     confidence_stats[level]['amount'] += actual_investment
                     
                     # 매수 정보 저장
-                    self.data_manager.set_purchase_info(ticker, {
+                    purchase_info = {
                         'buy_price': current_price,
                         'quantity': actual_quantity,
                         'investment': actual_investment,
                         'buy_date': datetime.now().isoformat(),
                         'ai_score': investment_info['ai_score'],
                         'confidence_level': investment_info['confidence_level']
-                    })
+                    }
+                    
+                    # 하이브리드 전략 정보 추가
+                    if investment_info.get('is_hybrid'):
+                        purchase_info.update({
+                            'is_hybrid': True,
+                            'technical_score': investment_info.get('technical_score'),
+                            'news_score': investment_info.get('news_score'),
+                            'news_sentiment': investment_info.get('news_sentiment')
+                        })
+                    
+                    self.data_manager.set_purchase_info(ticker, purchase_info)
                     
                     # 슬랙 알림: 매수 체결
                     self.notifier.notify_buy_execution(
@@ -504,6 +676,8 @@ class BuyExecutor:
                     )
                     
                     print(f"✅ {ticker} 매수 완료")
+                    if self.hybrid_strategy_enabled:
+                        print(f"   🤝 하이브리드: 기술적({investment_info.get('technical_score', 0)*100:.1f}%) + 뉴스({investment_info.get('news_score', 0)*100:.1f}%)")
                 else:
                     print(f"❌ {ticker} 매수 주문 실패")
                     
@@ -517,30 +691,65 @@ class BuyExecutor:
             'confidence_stats': confidence_stats
         }
     
-    def _determine_investment_amount(self, ticker: str, strategy_data: Dict[str, Any]) -> Dict[str, Any]:
-        """투자 금액 결정 (백테스트 엔진과 동일한 신뢰도 기준)"""
-        # AI 점수 가져오기
-        ai_score = strategy_data.get('ai_predictions', {}).get(ticker, {}).get('score', 0.5)
-        
-        # 강화된 AI 신뢰도 기반 투자 금액 계산 (백테스트 엔진과 일관성 맞춤)
-        if ai_score >= 0.80:           # 최고신뢰: 80만원 (기준 상향)
-            investment_amount = 800_000    
-            confidence_level = "최고신뢰"
-        elif ai_score >= 0.70:         # 고신뢰: 60만원 (기준 상향)
-            investment_amount = 600_000    
-            confidence_level = "고신뢰"
-        elif ai_score >= 0.65:         # 중신뢰: 40만원 (기준 상향)
-            investment_amount = 400_000    
-            confidence_level = "중신뢰"
-        else:                          # 저신뢰: 30만원 (0.65 미만)
-            investment_amount = 300_000      
-            confidence_level = "저신뢰"
-        
-        return {
-            'amount': investment_amount,
-            'ai_score': ai_score,
-            'confidence_level': confidence_level
-        }
+    def _determine_investment_amount(self, ticker: str, strategy_data: Dict[str, Any], 
+                                    candidate: Any = None) -> Dict[str, Any]:
+        """투자 금액 결정 (하이브리드 전략 지원)"""
+        # 하이브리드 전략인 경우
+        if self.hybrid_strategy_enabled and isinstance(candidate, dict) and 'combined_score' in candidate:
+            score = candidate['combined_score']
+            
+            # 종합 점수 기반 투자 금액 계산
+            if score >= 0.80:           # 최고신뢰: 80만원
+                investment_amount = 800_000    
+                confidence_level = "최고신뢰"
+            elif score >= 0.70:         # 고신뢰: 60만원
+                investment_amount = 600_000    
+                confidence_level = "고신뢰"
+            elif score >= 0.65:         # 중신뢰: 40만원
+                investment_amount = 400_000    
+                confidence_level = "중신뢰"
+            else:                       # 저신뢰: 30만원
+                investment_amount = 300_000      
+                confidence_level = "저신뢰"
+            
+            # 뉴스 감정이 부정적인 경우 추가 감소
+            if candidate.get('news_sentiment') == '부정':
+                investment_amount = int(investment_amount * 0.7)
+                confidence_level += " (뉴스 부정)"
+            
+            return {
+                'amount': investment_amount,
+                'ai_score': score,
+                'confidence_level': confidence_level,
+                'is_hybrid': True,
+                'technical_score': candidate.get('technical_score', 0.7),
+                'news_score': candidate.get('news_score', 0.5),
+                'news_sentiment': candidate.get('news_sentiment', '중립')
+            }
+        else:
+            # 기존 방식: AI 점수만 사용
+            ai_score = strategy_data.get('ai_predictions', {}).get(ticker, {}).get('score', 0.5)
+            
+            # 강화된 AI 신뢰도 기반 투자 금액 계산 (백테스트 엔진과 일관성 맞춤)
+            if ai_score >= 0.80:           # 최고신뢰: 80만원
+                investment_amount = 800_000    
+                confidence_level = "최고신뢰"
+            elif ai_score >= 0.70:         # 고신뢰: 60만원
+                investment_amount = 600_000    
+                confidence_level = "고신뢰"
+            elif ai_score >= 0.65:         # 중신뢰: 40만원
+                investment_amount = 400_000    
+                confidence_level = "중신뢰"
+            else:                          # 저신뢰: 30만원
+                investment_amount = 300_000      
+                confidence_level = "저신뢰"
+            
+            return {
+                'amount': investment_amount,
+                'ai_score': ai_score,
+                'confidence_level': confidence_level,
+                'is_hybrid': False
+            }
     
     def _send_buy_summary(self, buy_results: Dict[str, Any], initial_holdings: int) -> None:
         """매수 완료 요약 알림"""
@@ -553,7 +762,10 @@ class BuyExecutor:
             confidence_stats=buy_results.get('confidence_stats')
         )
         
-        print(f"\n💼 AI 신뢰도 기반 매수 완료:")
+        if self.hybrid_strategy_enabled:
+            print(f"\n💼 하이브리드 전략 기반 매수 완료:")
+        else:
+            print(f"\n💼 AI 신뢰도 기반 매수 완료:")
         print(f"   매수 종목 수: {buy_results['bought_count']}개")
         print(f"   총 투자금액: {buy_results['total_invested']:,}원")
     
@@ -569,7 +781,8 @@ class BuyExecutor:
             'current_holdings': len(current_holdings),
             'enhanced_analysis_enabled': strategy_data.get('enhanced_analysis_enabled', True),
             'ai_confidence_strategy': True,
-            'data_validation_enhanced': True
+            'data_validation_enhanced': True,
+            'hybrid_strategy_enabled': self.hybrid_strategy_enabled
         })
 
 

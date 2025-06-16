@@ -255,7 +255,7 @@ class TechnicalAnalyzer:
                 print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
                 return False
             
-            print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
+            # print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
             return True
             
         except Exception as e:

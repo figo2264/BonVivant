@@ -22,39 +22,37 @@ class BacktestConfig:
     position_size_ratio: float = 0.8         # 현금 대비 투자 비율
     safety_cash_amount: float = 2_000_000    # 안전 자금 (200만원)
     
-    # AI 모델 설정
-    ai_enabled: bool = True                  # AI 기능 활성화
-    ai_retrain_frequency: str = 'weekly'     # 재훈련 주기 ('daily', 'weekly')
-    min_ai_confidence: float = 0.65          # 최소 AI 신뢰도
-    ai_lookback_days: int = 1000             # AI 학습용 데이터 일수
+    # 기술적 분석 설정
+    min_technical_score: float = 0.65        # 최소 기술적 점수
+    enhanced_analysis: bool = True           # 강화된 기술적 분석 사용
     
-    # 투자 금액 설정 (AI 신뢰도별)
+    # 투자 금액 설정 (기술적 점수별)
     investment_amounts: Dict[str, float] = None
     
     def __post_init__(self):
         if self.investment_amounts is None:
             self.investment_amounts = {
-                '최고신뢰': 800_000,    # 80만원 (AI 점수 0.8+)
-                '고신뢰': 600_000,      # 60만원 (AI 점수 0.7-0.8)
-                '중신뢰': 400_000,      # 40만원 (AI 점수 0.65-0.7)
-                '저신뢰': 300_000       # 30만원 (AI 점수 0.65 미만)
+                '최고신뢰': 800_000,    # 80만원 (점수 0.8+)
+                '고신뢰': 600_000,      # 60만원 (점수 0.7-0.8)
+                '중신뢰': 400_000,      # 40만원 (점수 0.65-0.7)
+                '저신뢰': 300_000       # 30만원 (점수 0.65 미만)
             }
     
-    def get_investment_amount(self, ai_score: float) -> tuple[float, str]:
+    def get_investment_amount(self, technical_score: float) -> tuple[float, str]:
         """
-        AI 점수에 따른 투자 금액 반환
+        기술적 점수에 따른 투자 금액 반환
         
         Args:
-            ai_score: AI 예측 점수 (0~1)
+            technical_score: 기술적 분석 점수 (0~1)
             
         Returns:
             tuple: (투자금액, 신뢰도레벨)
         """
-        if ai_score >= 0.80:
+        if technical_score >= 0.80:
             return self.investment_amounts['최고신뢰'], '최고신뢰'
-        elif ai_score >= 0.70:
+        elif technical_score >= 0.70:
             return self.investment_amounts['고신뢰'], '고신뢰'
-        elif ai_score >= 0.65:
+        elif technical_score >= 0.65:
             return self.investment_amounts['중신뢰'], '중신뢰'
         else:
             return self.investment_amounts['저신뢰'], '저신뢰'
@@ -69,16 +67,24 @@ class BacktestConfig:
             'max_holding_days': self.max_holding_days,
             'position_size_ratio': self.position_size_ratio,
             'safety_cash_amount': self.safety_cash_amount,
-            'ai_enabled': self.ai_enabled,
-            'ai_retrain_frequency': self.ai_retrain_frequency,
-            'min_ai_confidence': self.min_ai_confidence,
-            'ai_lookback_days': self.ai_lookback_days,
+            'min_technical_score': self.min_technical_score,
+            'enhanced_analysis': self.enhanced_analysis,
             'investment_amounts': self.investment_amounts
         }
     
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any]) -> 'BacktestConfig':
         """딕셔너리에서 설정 생성"""
+        # 이전 버전 호환성을 위한 처리
+        if 'ai_enabled' in config_dict:
+            config_dict.pop('ai_enabled')
+        if 'ai_retrain_frequency' in config_dict:
+            config_dict.pop('ai_retrain_frequency')
+        if 'min_ai_confidence' in config_dict:
+            config_dict['min_technical_score'] = config_dict.pop('min_ai_confidence')
+        if 'ai_lookback_days' in config_dict:
+            config_dict.pop('ai_lookback_days')
+            
         return cls(**config_dict)
 
 
@@ -90,7 +96,7 @@ CONSERVATIVE_CONFIG = BacktestConfig(
     stop_loss_rate=-0.03,              # 보수적: -3% 손실제한
     max_holding_days=3,                 # 보수적: 3일 최대 보유
     position_size_ratio=0.6,            # 보수적: 60%만 투자
-    min_ai_confidence=0.75,             # 보수적: 높은 신뢰도만
+    min_technical_score=0.75,           # 보수적: 높은 점수만
     investment_amounts={
         '최고신뢰': 600_000,
         '고신뢰': 500_000,
@@ -106,7 +112,7 @@ AGGRESSIVE_CONFIG = BacktestConfig(
     stop_loss_rate=-0.08,              # 공격적: -8% 손실제한
     max_holding_days=7,                 # 공격적: 7일 최대 보유
     position_size_ratio=0.9,            # 공격적: 90% 투자
-    min_ai_confidence=0.55,             # 공격적: 낮은 신뢰도도 허용
+    min_technical_score=0.55,           # 공격적: 낮은 점수도 허용
     investment_amounts={
         '최고신뢰': 1_200_000,
         '고신뢰': 1_000_000,
@@ -159,6 +165,12 @@ def create_custom_config(**kwargs) -> BacktestConfig:
     
     # 커스텀 파라미터로 업데이트
     base_config.update(kwargs)
+    
+    # 이전 버전 호환성
+    if 'ai_enabled' in base_config:
+        base_config.pop('ai_enabled')
+    if 'min_ai_confidence' in base_config:
+        base_config['min_technical_score'] = base_config.pop('min_ai_confidence')
     
     return BacktestConfig.from_dict(base_config)
 
