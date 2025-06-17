@@ -23,8 +23,13 @@ class BacktestConfig:
     safety_cash_amount: float = 2_000_000    # 안전 자금 (200만원)
     
     # 기술적 분석 설정
-    min_technical_score: float = 0.65        # 최소 기술적 점수
+    min_technical_score: float = 0.70        # 최소 기술적 점수 (최적화 결과: 0.7)
     enhanced_analysis: bool = True           # 강화된 기술적 분석 사용
+    
+    # 종목 선정 파라미터 (최적화 결과 반영)
+    min_close_days: int = 7                  # 최저점 확인 기간 (최적화: 7일)
+    ma_period: int = 20                      # 이동평균 기간 (최적화: 20일)
+    min_trade_amount: float = 300_000_000    # 최소 거래대금 (최적화: 3억원)
     
     # 투자 금액 설정 (기술적 점수별)
     investment_amounts: Dict[str, float] = None
@@ -69,7 +74,10 @@ class BacktestConfig:
             'safety_cash_amount': self.safety_cash_amount,
             'min_technical_score': self.min_technical_score,
             'enhanced_analysis': self.enhanced_analysis,
-            'investment_amounts': self.investment_amounts
+            'investment_amounts': self.investment_amounts,
+            'min_close_days': self.min_close_days,
+            'ma_period': self.ma_period,
+            'min_trade_amount': self.min_trade_amount
         }
     
     @classmethod
@@ -97,6 +105,9 @@ CONSERVATIVE_CONFIG = BacktestConfig(
     max_holding_days=3,                 # 보수적: 3일 최대 보유
     position_size_ratio=0.6,            # 보수적: 60%만 투자
     min_technical_score=0.75,           # 보수적: 높은 점수만
+    min_close_days=7,                   # 최적화 결과 반영
+    ma_period=20,                       # 최적화 결과 반영
+    min_trade_amount=500_000_000,       # 보수적: 5억원
     investment_amounts={
         '최고신뢰': 600_000,
         '고신뢰': 500_000,
@@ -113,6 +124,9 @@ AGGRESSIVE_CONFIG = BacktestConfig(
     max_holding_days=7,                 # 공격적: 7일 최대 보유
     position_size_ratio=0.9,            # 공격적: 90% 투자
     min_technical_score=0.55,           # 공격적: 낮은 점수도 허용
+    min_close_days=7,                   # 최적화 결과 반영
+    ma_period=20,                       # 최적화 결과 반영
+    min_trade_amount=100_000_000,       # 공격적: 1억원
     investment_amounts={
         '최고신뢰': 1_200_000,
         '고신뢰': 1_000_000,

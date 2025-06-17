@@ -135,27 +135,28 @@ class SellExecutor:
                 sell_reason = f"손실제한 (손실률: {loss_rate*100:.1f}%)"
                 print(f"   🛑 {ticker}: 손실 제한 매도 - 손실률 {loss_rate*100:.1f}%")
             
-            # 3. 기본 3일 룰 (손실 제한이 아닌 경우만)
+            # 🔧 3. 뉴스 예측 기반 매도 신호 체크 (하이브리드 전략)
+            elif self._check_news_sell_signal(ticker, holding_days):
+                should_sell = True
+                sell_reason = f"뉴스 하락 예측"
+                print(f"   📉 {ticker}: 뉴스 기반 매도 신호")
+            
+            # 4. 기본 3일 룰 (손실 제한과 뉴스 신호가 아닌 경우만)
             elif holding_days >= 3:
                 should_sell = True
                 sell_reason = f"보유기간 ({holding_days}일)"
                 print(f"   → {ticker}: 3일 이상 보유로 매도 검토")
                 
-                # 기술적 홀드 시그널 체크 (3일차에만, 손실이 없는 경우만)
+                # 종합적인 홀드 판단 (3일차에만)
                 if holding_days == 3 and enhanced_analysis_enabled and loss_rate > -0.02:  # 2% 이상 손실이 아닌 경우만
-                    try:
-                        hold_signal = get_technical_hold_signal(ticker)
-                        
-                        if hold_signal >= 0.75:
-                            should_sell = False
-                            sell_reason = ""
-                            print(f"   → {ticker}: 기술적 분석 강홀드 신호로 1일 연장 (신호강도: {hold_signal:.3f})")
-                        elif hold_signal <= 0.25:
-                            print(f"   ⚠️ {ticker}: 기술적 분석 매도 신호 (신호강도: {hold_signal:.3f})")
-                    except Exception as e:
-                        print(f"   → {ticker}: 홀드 시그널 계산 오류: {e}")
+                    hold_score = self._calculate_hold_score(ticker, loss_rate)
+                    
+                    if hold_score >= 0.75:
+                        should_sell = False
+                        sell_reason = ""
+                        print(f"   → {ticker}: 종합 홀드 신호로 1일 연장 (점수: {hold_score:.3f})")
             
-            # 4. 안전장치: 5일 이상은 무조건 매도
+            # 5. 안전장치: 5일 이상은 무조건 매도
             if holding_days >= 5:
                 should_sell = True
                 sell_reason = f"5일 안전룰"
@@ -174,6 +175,73 @@ class SellExecutor:
             print(f"   - {item['ticker']}: {item['reason']}")
         
         return [item['ticker'] for item in tickers_to_sell]
+    
+    def _check_news_sell_signal(self, ticker: str, holding_days: int) -> bool:
+        """뉴스 예측값 기반 매도 신호 체크"""
+        purchase_info = self.data_manager.get_purchase_info(ticker)
+        
+        # 하이브리드 전략으로 매수한 경우만
+        if not purchase_info or not purchase_info.get('is_hybrid'):
+            return False
+        
+        # 보유 기간에 따른 적절한 예측값 확인
+        if holding_days <= 1:
+            # 1일 보유: 1일 후 예측 확인
+            current_prob = purchase_info.get('news_prob_1', 0.5)
+            next_prob = purchase_info.get('news_prob_5', 0.5)
+        elif holding_days <= 3:
+            # 2-3일 보유: 5일 예측 확인
+            current_prob = purchase_info.get('news_prob_5', 0.5)
+            next_prob = purchase_info.get('news_prob_10', 0.5)
+        else:
+            # 4일 이상: 10일 예측 확인
+            current_prob = purchase_info.get('news_prob_10', 0.5)
+            next_prob = 0.5
+        
+        # 매도 신호 판단
+        # 1) 현재 시점 예측이 하락 예상 (45% 미만)
+        if current_prob < 0.45:
+            print(f"      📉 뉴스 하락 예측: {current_prob*100:.1f}% < 45%")
+            return True
+        
+        # 2) 예측 추세가 급격한 하락세
+        if next_prob < current_prob - 0.1:  # 10%p 이상 하락
+            print(f"      📉 뉴스 하락 추세: {current_prob*100:.1f}% → {next_prob*100:.1f}%")
+            return True
+        
+        return False
+    
+    def _calculate_hold_score(self, ticker: str, loss_rate: float) -> float:
+        """종합적인 홀드 점수 계산 (기술적 분석 + 뉴스)"""
+        hold_score = 0.5  # 기본 점수
+        
+        # 1. 기술적 홀드 시그널
+        try:
+            technical_hold = get_technical_hold_signal(ticker)
+            hold_score = technical_hold * 0.7  # 기술적 분석 70% 가중치
+            print(f"      📊 기술적 홀드 신호: {technical_hold:.3f}")
+        except Exception as e:
+            print(f"      ⚠️ 기술적 분석 오류: {e}")
+            hold_score = 0.5 * 0.7
+        
+        # 2. 뉴스 예측값 반영 (하이브리드 전략인 경우)
+        purchase_info = self.data_manager.get_purchase_info(ticker)
+        if purchase_info and purchase_info.get('is_hybrid'):
+            # 5일 예측값 확인 (3일 보유 중이므로)
+            news_prob = purchase_info.get('news_prob_5', 0.5)
+            news_hold_score = news_prob  # 상승 확률이 높으면 홀드
+            hold_score += news_hold_score * 0.3  # 뉴스 30% 가중치
+            print(f"      📰 뉴스 홀드 신호: {news_hold_score:.3f} (5일 예측)")
+        else:
+            hold_score += 0.5 * 0.3  # 뉴스 정보 없으면 중립
+        
+        # 3. 수익률 보정
+        if loss_rate > 0.03:  # 3% 이상 수익 중
+            hold_score -= 0.1  # 수익 실현 유도
+        elif loss_rate < -0.02:  # 2% 이상 손실
+            hold_score -= 0.1  # 손실 확대 방지
+        
+        return hold_score
     
     def _execute_sells(self, tickers_to_sell: List[str], holdings: Dict[str, int]) -> Dict[str, Any]:
         """매도 실행"""
@@ -430,8 +498,16 @@ class BuyExecutor:
                         news_list, ticker, company_name
                     )
                     
-                    news_score = news_analysis.get('avg_confidence', 0.5)
+                    # 보유 예정 기간(3-5일)에 맞는 예측값 사용
+                    # 기존: avg_confidence만 사용 → 개선: 5일 후 예측값 우선 사용
+                    news_score = news_analysis.get('prob_5', news_analysis.get('avg_confidence', 0.5))
                     news_sentiment = news_analysis.get('sentiment', '중립')
+                    
+                    # 디버깅: 시간별 예측값 출력
+                    if self.debug_news:
+                        print(f"   📈 시간별 예측: 1일 {news_analysis.get('prob_1', 0.5)*100:.1f}%, "
+                              f"5일 {news_analysis.get('prob_5', 0.5)*100:.1f}%, "
+                              f"10일 {news_analysis.get('prob_10', 0.5)*100:.1f}%")
                     
                     # 종합 점수 계산
                     combined_score = (
@@ -439,9 +515,9 @@ class BuyExecutor:
                         news_score * self.news_weight
                     )
                     
-                    print(f"   ✅ 뉴스 감정: {news_sentiment}, 신뢰도: {news_score*100:.1f}%")
+                    print(f"   ✅ 뉴스 감정: {news_sentiment}, 5일 예측: {news_score*100:.1f}%")
                     print(f"   📊 종합 점수: {combined_score*100:.1f}% "
-                          f"(기술적: {technical_score*100:.1f}%, 뉴스: {news_score*100:.1f}%)")
+                          f"(기술적: {technical_score*100:.1f}%, 뉴스 5일: {news_score*100:.1f}%)")
                     
                     # 최소 점수 기준 충족 확인
                     if combined_score >= self.min_combined_score:
@@ -660,7 +736,11 @@ class BuyExecutor:
                             'is_hybrid': True,
                             'technical_score': investment_info.get('technical_score'),
                             'news_score': investment_info.get('news_score'),
-                            'news_sentiment': investment_info.get('news_sentiment')
+                            'news_sentiment': investment_info.get('news_sentiment'),
+                            # 시간별 예측값 추가 저장
+                            'news_prob_1': candidate.get('news_analysis', {}).get('prob_1') if isinstance(candidate, dict) else None,
+                            'news_prob_5': candidate.get('news_analysis', {}).get('prob_5') if isinstance(candidate, dict) else None,
+                            'news_prob_10': candidate.get('news_analysis', {}).get('prob_10') if isinstance(candidate, dict) else None
                         })
                     
                     self.data_manager.set_purchase_info(ticker, purchase_info)

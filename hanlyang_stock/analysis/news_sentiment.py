@@ -20,6 +20,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
 import time
+import random
 from pykrx import stock
 
 # .env 파일 수동 로드
@@ -59,7 +60,7 @@ class NewsAnalyzer:
         # 종목별 회사명 캐시
         self.company_name_cache = {}
     
-    def fetch_ticker_news(self, ticker: str, company_name: str, date: str) -> List[Dict[str, str]]:
+    def fetch_ticker_news_old(self, ticker: str, company_name: str, date: str) -> List[Dict[str, str]]:
         """
         특정 종목의 뉴스 수집 (매일경제)
         
@@ -353,6 +354,388 @@ class NewsAnalyzer:
         print(f"  ✅ 수집 완료: {len(news_list)}개 뉴스")
         return news_list
     
+    def fetch_ticker_news(self, ticker: str, company_name: str, date: str) -> List[Dict[str, str]]:
+        """
+        네이버 증권에서 종목 뉴스를 Selenium으로 크롤링
+        
+        Args:
+            ticker: 종목 코드 (예: '005930')
+            company_name: 회사명 (예: '삼성전자')
+            date: 기준 날짜 (YYYY-MM-DD)
+            
+        Returns:
+            List[Dict]: 뉴스 리스트 [{title, date, url, source}, ...]
+        """
+        print(f"📡 네이버 증권에서 {ticker} ({company_name}) 뉴스 수집 시작...")
+        
+        # 경제 전문 매체 리스트
+        QUALITY_SOURCES = [
+            '한국경제', '한경', '연합인포맥스', '인포맥스',
+            '매일경제', '매경', '서울경제', '이데일리',
+            '머니투데이', '파이낸셜뉴스', '아시아경제',
+            '헤럴드경제', '조선비즈', '뉴스1', '뉴시스'
+        ]
+        
+        news_list = []
+        driver = None
+        
+        try:
+            # Selenium 드라이버 설정
+            chrome_options = webdriver.ChromeOptions()
+            if not self.debug:
+                chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument('--window-size=1920,1080')
+            chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+            
+            # 이미지 로딩 비활성화 (속도 향상)
+            prefs = {"profile.managed_default_content_settings.images": 2}
+            chrome_options.add_experimental_option("prefs", prefs)
+            
+            serv = Service(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=serv, options=chrome_options)
+            
+            # 네이버 증권 뉴스 페이지
+            url = f"https://finance.naver.com/item/news.naver?code={ticker}"
+            print(f"  📄 페이지 접속: {url}")
+            
+            driver.get(url)
+            
+            # iframe 대기 및 전환
+            try:
+                # iframe이 로드될 때까지 대기
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "news_frame"))
+                )
+                
+                # iframe으로 전환
+                news_iframe = driver.find_element(By.ID, "news_frame")
+                driver.switch_to.frame(news_iframe)
+                print("  ✅ 뉴스 프레임 진입 성공")
+                
+                # 뉴스 테이블 대기
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "table.type5"))
+                )
+                
+            except Exception as e:
+                print(f"  ⚠️ iframe 전환 실패: {e}")
+                # iframe 없이 시도
+                pass
+            
+            # 페이지 소스 파싱
+            soup = BeautifulSoup(driver.page_source, 'html.parser')
+            
+            # 뉴스 테이블 찾기
+            news_table = soup.find('table', class_='type5')
+            if not news_table:
+                print("  ⚠️ 뉴스 테이블을 찾을 수 없습니다.")
+                return []
+            
+            # 뉴스 행 찾기
+            rows = news_table.find_all('tr')
+            print(f"  📊 {len(rows)}개 행 발견")
+            
+            news_count = 0
+            
+            for row in rows:
+                # 헤더 행 스킵
+                if row.find('th'):
+                    continue
+                
+                # 제목 셀 찾기
+                title_cell = row.find('td', class_='title')
+                if not title_cell:
+                    continue
+                
+                # 제목과 링크
+                link_elem = title_cell.find('a')
+                if not link_elem:
+                    continue
+                
+                title = link_elem.text.strip()
+                news_url = link_elem.get('href', '')
+                
+                # 절대 URL로 변환
+                if news_url and not news_url.startswith('http'):
+                    if news_url.startswith('//'):
+                        news_url = 'https:' + news_url
+                    else:
+                        news_url = 'https://finance.naver.com' + news_url
+                
+                # 정보 제공자 (언론사)
+                info_cell = row.find('td', class_='info')
+                source = info_cell.text.strip() if info_cell else '알 수 없음'
+                
+                # 날짜
+                date_cell = row.find('td', class_='date')
+                news_date = date_cell.text.strip() if date_cell else date
+                
+                # 경제 전문지 필터링
+                is_quality = any(s in source for s in QUALITY_SOURCES)
+                
+                if not is_quality and not self.debug:
+                    continue
+                
+                news_item = {
+                    'title': title,
+                    'date': news_date,
+                    'url': news_url,
+                    'source': source
+                }
+                
+                news_list.append(news_item)
+                news_count += 1
+                
+                if self.debug:
+                    print(f"  ✅ [{source}] {title[:50]}...")
+                
+                # 최대 20개만 수집
+                if news_count >= 20:
+                    break
+            
+            print(f"  📰 {len(news_list)}개 뉴스 수집")
+            
+            # 날짜순 정렬
+            news_list.sort(key=lambda x: x['date'], reverse=True)
+            
+            # 최대 10개만 반환
+            final_news = news_list[:10]
+            
+            # 소스별 통계
+            if final_news:
+                source_stats = {}
+                for news in final_news:
+                    src = news['source']
+                    source_stats[src] = source_stats.get(src, 0) + 1
+                
+                print(f"  📊 소스별 분포:")
+                for src, count in sorted(source_stats.items(), key=lambda x: x[1], reverse=True):
+                    print(f"     - {src}: {count}개")
+            
+            return final_news
+            
+        except Exception as e:
+            print(f"❌ 뉴스 수집 오류 ({ticker}): {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
+            
+            # Selenium 실패 시 기존 방식으로 fallback
+            print(f"  ⚠️ 기존 방식으로 재시도...")
+            return self.fetch_ticker_news_old(ticker, company_name, date)
+            
+        finally:
+            if driver:
+                driver.quit()
+    
+    def fetch_ticker_news_requests(self, ticker: str, company_name: str, date: str) -> List[Dict[str, str]]:
+        """
+        네이버 증권에서 종목 뉴스를 크롤링하고 경제 전문 매체만 필터링
+        
+        Args:
+            ticker: 종목 코드 (예: '005930')
+            company_name: 회사명 (예: '삼성전자')
+            date: 기준 날짜 (YYYY-MM-DD)
+            
+        Returns:
+            List[Dict]: 뉴스 리스트 [{title, date, url, source}, ...]
+        """
+        print(f"📡 네이버 증권에서 {ticker} ({company_name}) 뉴스 수집 시작...")
+        
+        # 경제 전문 매체 리스트 (한경, 연합인포맥스 중심)
+        QUALITY_SOURCES = [
+            '한국경제', '한경', '한국경제신문', 'hankyung',
+            '연합인포맥스', '인포맥스', 'einfomax',
+            '매일경제', '매경', 'mk',
+            '서울경제', '서경', 'sedaily',
+            '머니투데이', 'moneytoday',
+            '이데일리', 'edaily',
+            '파이낸셜뉴스', 'fnnews',
+            '아시아경제', 'asiae'
+        ]
+        
+        news_list = []
+        
+        # 날짜 범위 설정 (기본 7일)
+        days_back = 7
+        end_date = datetime.strptime(date, '%Y-%m-%d')
+        start_date = end_date - timedelta(days=days_back)
+        
+        # 최적화된 헤더
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Cache-Control': 'max-age=0'
+        }
+        
+        # 네이버 증권 뉴스 URL
+        base_url = "https://finance.naver.com/item/news_news.naver"
+        
+        try:
+            # 페이지별로 크롤링 (최대 5페이지)
+            for page in range(1, 6):
+                # 요청 간격 조절 (로봇 차단 회피)
+                if page > 1:
+                    time.sleep(random.uniform(1.0, 2.5))
+                
+                # URL 파라미터
+                params = {
+                    'code': ticker,
+                    'page': page,
+                    'sm': 'entity_id.basic',
+                    'clusterId': ''
+                }
+                
+                # 요청 전송
+                response = requests.get(base_url, params=params, headers=headers)
+                
+                if response.status_code != 200:
+                    print(f"  ⚠️ 페이지 {page} 요청 실패 (상태 코드: {response.status_code})")
+                    continue
+                
+                soup = BeautifulSoup(response.text, 'html.parser')
+                
+                # 뉴스 테이블 찾기
+                news_table = soup.find('table', class_='type5')
+                if not news_table:
+                    print(f"  ⚠️ 페이지 {page}에 뉴스 테이블이 없습니다.")
+                    break
+                
+                # 뉴스 항목 추출
+                rows = news_table.find_all('tr')
+                page_news_count = 0
+                
+                for row in rows:
+                    # 제목과 링크가 있는 행만 처리
+                    title_cell = row.find('td', class_='title')
+                    if not title_cell:
+                        continue
+                    
+                    link_elem = title_cell.find('a')
+                    if not link_elem:
+                        continue
+                    
+                    # 뉴스 정보 추출
+                    title = link_elem.text.strip()
+                    news_url = 'https://finance.naver.com' + link_elem.get('href', '')
+                    
+                    # 정보 제공자 추출
+                    info_cell = row.find('td', class_='info')
+                    source = info_cell.text.strip() if info_cell else '알 수 없음'
+                    
+                    # 날짜 추출
+                    date_cell = row.find('td', class_='date')
+                    news_date_str = date_cell.text.strip() if date_cell else ''
+                    
+                    # 날짜 파싱 및 필터링
+                    try:
+                        # 다양한 날짜 형식 처리
+                        if '시간' in news_date_str or '분' in news_date_str:
+                            # 오늘 날짜
+                            news_date = end_date
+                        elif '.' in news_date_str:
+                            # 2024.01.15 형식
+                            if len(news_date_str.split('.')[0]) == 2:
+                                # 24.01.15 형식
+                                news_date_str = '20' + news_date_str
+                            news_date = datetime.strptime(news_date_str.split()[0], '%Y.%m.%d')
+                        else:
+                            # 다른 형식은 오늘로 가정
+                            news_date = end_date
+                        
+                        # 날짜 범위 체크
+                        if news_date < start_date:
+                            if self.debug:
+                                print(f"  ⏭️ 날짜 범위 벗어남: {news_date_str}")
+                            continue
+                            
+                    except Exception as e:
+                        if self.debug:
+                            print(f"  ⚠️ 날짜 파싱 오류: {news_date_str} - {e}")
+                        news_date = end_date
+                    
+                    # 경제 전문 매체 필터링
+                    is_quality_source = any(
+                        src.lower() in source.lower() 
+                        for src in QUALITY_SOURCES
+                    )
+                    
+                    if not is_quality_source:
+                        if self.debug:
+                            print(f"  ⏭️ 필터링됨: {source} - {title[:30]}...")
+                        continue
+                    
+                    # 뉴스 추가
+                    news_item = {
+                        'title': title,
+                        'date': news_date.strftime('%Y-%m-%d'),
+                        'url': news_url,
+                        'source': source
+                    }
+                    
+                    news_list.append(news_item)
+                    page_news_count += 1
+                    
+                    if self.debug:
+                        print(f"  ✅ [{source}] {title[:50]}...")
+                
+                print(f"  📄 페이지 {page}: {page_news_count}개 수집")
+                
+                # 뉴스가 없거나 날짜 범위를 벗어난 경우 중단
+                if page_news_count == 0:
+                    break
+            
+            # 중복 제거 (제목 기준)
+            unique_news = []
+            seen_titles = set()
+            
+            for news in news_list:
+                title_key = news['title'][:50]  # 앞 50자로 중복 체크
+                if title_key not in seen_titles:
+                    seen_titles.add(title_key)
+                    unique_news.append(news)
+            
+            # 날짜순 정렬 (최신순)
+            unique_news.sort(key=lambda x: x['date'], reverse=True)
+            
+            # 최대 10개만 반환 (Claude API 비용 절감)
+            final_news = unique_news[:10]
+            
+            print(f"  ✅ 최종 수집: {len(final_news)}개 (전체 {len(unique_news)}개 중)")
+            
+            # 소스별 통계
+            if final_news:
+                source_stats = {}
+                for news in final_news:
+                    src = news['source']
+                    source_stats[src] = source_stats.get(src, 0) + 1
+                
+                print(f"  📊 소스별 분포:")
+                for src, count in sorted(source_stats.items(), key=lambda x: x[1], reverse=True):
+                    print(f"     - {src}: {count}개")
+            
+            return final_news
+            
+        except Exception as e:
+            print(f"❌ 뉴스 수집 오류 ({ticker}): {e}")
+            if self.debug:
+                import traceback
+                traceback.print_exc()
+            
+            # 오류 발생 시 기존 방식으로 fallback
+            print(f"  ⚠️ 네이버 증권 크롤링 실패, 기존 방식으로 재시도...")
+            return self.fetch_ticker_news_old(ticker, company_name, date)
+    
     def analyze_news_sentiment(self, news_list: List[Dict], ticker: str, company_name: str, 
                                days: List[int] = [1, 5, 10, 20]) -> Dict[str, any]:
         """
@@ -377,15 +760,36 @@ class NewsAnalyzer:
                 print(f"  [DEBUG] 기본값 반환 - 클라이언트: {bool(self.client)}, 뉴스: {bool(news_list)}")
             return self._get_default_predictions(days)
         
-        # 프롬프트 생성
-        news_titles = "\n".join([f"{i+1}. {news['title']}" for i, news in enumerate(news_list[:5])])
+        # 프롬프트 생성 - 소스 정보 포함
+        news_info = []
+        for i, news in enumerate(news_list[:10]):
+            source = news.get('source', '알 수 없음')
+            title = news['title']
+            news_info.append(f"{i+1}. [{source}] {title}")
         
-        prompt = f"""다음은 {company_name}({ticker}) 관련 최근 뉴스 제목들입니다:
+        news_titles = "\n".join(news_info)
+        
+        prompt = f"""다음은 {company_name}({ticker}) 관련 최근 뉴스입니다:
 
 {news_titles}
 
-위 뉴스들을 분석하여 {company_name} 주가가 향후 {days[0]}, {days[1]}, {days[2]}, {days[3]}일 후에 
-각각 상승할 확률을 0-100 사이의 숫자로 예측해주세요.
+위 뉴스들을 바탕으로 주가 영향을 분석해주세요.
+
+분석 시 고려사항:
+1. 뉴스 출처의 신뢰도: 한국경제, 연합인포맥스 등 경제 전문지는 높은 가중치
+2. 뉴스 내용의 구체성: 실적, 계약, 투자 등 구체적 수치가 있는 뉴스는 중요
+3. 시장 반응 예측: 기관투자자와 개인투자자의 반응 차이 고려
+
+단계별 분석:
+1. 뉴스 분류: 각 뉴스를 긍정적/부정적/중립적으로 분류하고 중요도 평가
+2. 시간별 영향: 즉각적 반응(1일), 단기 모멘텀(5일), 중기 트렌드(10-20일) 구분
+3. 신뢰도 평가: 뉴스의 출처와 구체성을 고려한 예측 신뢰도
+
+주가 상승 가능성 평가 기준:
+- 50% 미만: 하락 가능성이 더 높음
+- 50-60%: 보합 또는 소폭 상승
+- 60-70%: 상승 가능성 있음
+- 70% 이상: 강한 상승 기대
 
 다음 형식으로만 답변해주세요:
 - {days[0]}일 후 상승 확률: XX%
@@ -393,7 +797,7 @@ class NewsAnalyzer:
 - {days[2]}일 후 상승 확률: XX%
 - {days[3]}일 후 상승 확률: XX%
 - 종합 감정: 긍정/중립/부정
-- 주요 이유: (한 줄로 설명)"""
+- 주요 이유: (가장 영향력 있는 뉴스 요인을 50자 이내로)"""
         
         try:
             # Claude API 호출
@@ -402,8 +806,8 @@ class NewsAnalyzer:
             
             response = self.client.messages.create(
                 model="claude-3-5-sonnet-20241022",
-                max_tokens=300,
-                temperature=0.0,
+                max_tokens=500,
+                temperature=0.2,
                 messages=[
                     {"role": "user", "content": prompt}
                 ]

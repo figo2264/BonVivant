@@ -65,20 +65,43 @@ def main():
         # 6. 하이브리드 전략 설정 (기술적 분석 + 뉴스 감정 분석)
         if 'hybrid_strategy_enabled' not in strategy_data:
             strategy_data['hybrid_strategy_enabled'] = True
-            strategy_data['news_weight'] = 0.3  # 뉴스 가중치 30%
-            strategy_data['technical_weight'] = 0.7  # 기술적 가중치 70%
+            strategy_data['news_weight'] = 0.5  # 뉴스 가중치 50%
+            strategy_data['technical_weight'] = 0.5  # 기술적 가중치 50%
             strategy_data['min_combined_score'] = 0.6  # 최소 종합 점수
-            print("✅ 하이브리드 전략 활성화 (기술적 70% + 뉴스 30%)")
+            print("✅ 하이브리드 전략 활성화 (기술적 50% + 뉴스 50%)")
             print(f"   📊 기술적 가중치: {strategy_data['technical_weight']*100:.0f}%")
             print(f"   📰 뉴스 가중치: {strategy_data['news_weight']*100:.0f}%")
             print(f"   🎯 최소 종합 점수: {strategy_data['min_combined_score']*100:.0f}%")
         
-        # 7. 최대 선정 종목 수 설정
+        # 7. 기본 품질 필터 설정 (1단계 다층적 필터링)
+        if 'quality_filter_enabled' not in strategy_data:
+            strategy_data['quality_filter_enabled'] = True
+            strategy_data['min_market_cap'] = 2_000_000_000_000  # 최소 시가총액 2천억 (균형잡힌 기준)
+            strategy_data['enhanced_min_trade_amount'] = 300_000_000  # 최소 거래대금 3억 (최적화 결과 반영)
+            print("✅ 기본 품질 필터 활성화 (1단계 다층적 필터링)")
+            print(f"   💎 최소 시가총액: {strategy_data['min_market_cap']/1_000_000_000:.0f}억원")
+            print(f"   💰 최소 거래대금: {strategy_data['enhanced_min_trade_amount']/1_000_000_000:.0f}억원")
+            print(f"   🚫 거래정지/관리종목 자동 제외")
+            print(f"   📊 예상 종목 풀: 약 200-250개 (적절한 선택 폭)")
+        
+        # 8. 최대 선정 종목 수 설정
         if 'max_selections' not in strategy_data:
             strategy_data['max_selections'] = 3  # 최대 3개 종목 선정
             print("✅ 최대 선정 종목 수: 3개")
         
-        # 8. 뉴스 디버깅 모드 설정
+        # 9. 기술적 분석 최적화 파라미터 (최적화 결과 반영)
+        if 'technical_params' not in strategy_data:
+            strategy_data['technical_params'] = {
+                'min_close_days': 7,          # 최저점 확인 기간 (최적화: 7일)
+                'ma_period': 20,              # 이동평균 기간 (유지: 20일)
+                'min_technical_score': 0.7    # 최소 기술점수 (최적화: 0.7로 상향)
+            }
+            print("✅ 기술적 분석 최적화 파라미터 설정")
+            print(f"   📊 최저점 확인 기간: {strategy_data['technical_params']['min_close_days']}일")
+            print(f"   📈 이동평균 기간: {strategy_data['technical_params']['ma_period']}일")
+            print(f"   🎯 최소 기술점수: {strategy_data['technical_params']['min_technical_score']}")
+        
+        # 10. 뉴스 디버깅 모드 설정
         if 'debug_news' not in strategy_data:
             strategy_data['debug_news'] = True  # 뉴스 분석 디버깅 모드 활성화
             print("🔍 뉴스 분석 디버깅 모드: 활성화")
@@ -94,8 +117,12 @@ def main():
         print(f"   🔍 고급 홀드 시그널: {'활성화' if strategy_data.get('advanced_hold_signal') else '비활성화'}")
         print(f"   🤝 하이브리드 전략: {'활성화' if strategy_data.get('hybrid_strategy_enabled') else '비활성화'}")
         if strategy_data.get('hybrid_strategy_enabled'):
-            print(f"      - 기술적 분석: {strategy_data.get('technical_weight', 0.7)*100:.0f}%")
-            print(f"      - 뉴스 감정: {strategy_data.get('news_weight', 0.3)*100:.0f}%")
+            print(f"      - 기술적 분석: {strategy_data.get('technical_weight', 0.5)*100:.0f}%")
+            print(f"      - 뉴스 감정: {strategy_data.get('news_weight', 0.5)*100:.0f}%")
+        print(f"   💎 품질 필터: {'활성화' if strategy_data.get('quality_filter_enabled') else '비활성화'}")
+        if strategy_data.get('quality_filter_enabled'):
+            print(f"      - 최소 시가총액: {strategy_data.get('min_market_cap', 500_000_000_000)/1_000_000_000:.0f}억원")
+            print(f"      - 최소 거래대금: {strategy_data.get('enhanced_min_trade_amount', 2_000_000_000)/1_000_000_000:.0f}억원")
         print(f"   📈 최대 선정 종목: {strategy_data.get('max_selections', 3)}개")
         print(f"   🔍 뉴스 디버깅 모드: {'활성화' if strategy_data.get('debug_news') else '비활성화'}")
         
@@ -126,18 +153,8 @@ def main():
                 
                 # 🔧 강화된 매도 전략 실행 (백테스트 엔진 기술적 분석 기능 적용)
                 strategy_data = data_manager.get_data()
-                
-                # 매도 전략 설정
-                sell_config = {
-                    'stop_loss_rate': strategy_data.get('stop_loss_rate', -0.05),
-                    'enhanced_data_validation': strategy_data.get('enhanced_data_validation', True),
-                    'advanced_hold_signal': strategy_data.get('advanced_hold_signal', True),
-                    'rsi_hold_upper': strategy_data.get('rsi_hold_upper', 70),
-                    'rsi_hold_lower': strategy_data.get('rsi_hold_lower', 30),
-                    'volume_surge_threshold': strategy_data.get('volume_surge_threshold', 2.0)
-                }
-                
-                sell_executor = SellExecutor(**sell_config)
+
+                sell_executor = SellExecutor(stop_loss_rate=strategy_data.get('stop_loss_rate', -0.05))
                 sell_results = sell_executor.execute()
                 
                 print(f"✅ 매도 전략 완료: {sell_results.get('sold_count', 0)}개 종목 매도")
@@ -156,29 +173,23 @@ def main():
                 break
 
         # 15시 20분~22분 - 매수 전용 실행 (여유시간 2분)
-        elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
-        # elif True:  # 테스트용 (주석 해제하여 즉시 실행)
+        # elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
+        elif True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
                 print("🚀 오후 매수 전략 실행 시작! (하이브리드: 기술적 분석 + 뉴스 감정 분석)")
                 
                 # 🔧 강화된 매수 전략 실행 (백테스트 엔진 기술적 분석 기능 적용)
                 strategy_data = data_manager.get_data()
                 
-                # 매수 전략 설정 (기술적 분석 + 뉴스 감정 분석)
+                # 매수 전략 설정 (하이브리드 전략에 필요한 파라미터만 전달)
                 buy_config = {
-                    'enhanced_data_validation': strategy_data.get('enhanced_data_validation', True),
-                    'enhanced_analysis_enabled': strategy_data.get('enhanced_analysis_enabled', True),
-                    'stability_focused_target': strategy_data.get('stability_focused_target', True),
-                    'profit_threshold': strategy_data.get('profit_threshold', 0.005),
-                    'volatility_control': strategy_data.get('volatility_control', True),
-                    'crash_protection': strategy_data.get('crash_protection', True),
                     'hybrid_strategy_enabled': strategy_data.get('hybrid_strategy_enabled', True),
-                    'news_weight': strategy_data.get('news_weight', 0.3),
-                    'technical_weight': strategy_data.get('technical_weight', 0.7),
+                    'news_weight': strategy_data.get('news_weight', 0.5),
+                    'technical_weight': strategy_data.get('technical_weight', 0.5),
                     'min_combined_score': strategy_data.get('min_combined_score', 0.6),
-                    'debug_news': strategy_data.get('debug_news', True)  # 뉴스 디버깅 모드
+                    'debug_news': strategy_data.get('debug_news', True)
                 }
-                
+
                 buy_executor = BuyExecutor(**buy_config)
                 buy_results = buy_executor.execute()
                 

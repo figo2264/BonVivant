@@ -28,6 +28,30 @@ def run_simple_backtest():
         transaction_cost=config.transaction_cost
     )
     
+    # 최적화된 백테스트 파라미터 설정
+    from hanlyang_stock.utils.storage import get_data_manager
+    data_manager = get_data_manager()
+    strategy_data = data_manager.get_data()
+    
+    # 최적화 파라미터를 백테스트 파라미터로 설정
+    optimal_params = {
+        'min_close_days': 7,
+        'ma_period': 20,  # 30 → 20
+        'min_trade_amount': 300_000_000,  # 1억 → 3억
+        'min_technical_score': 0.7,  # 0.65 → 0.7
+        'max_positions': 5
+    }
+    
+    # strategy_data에 백테스트 파라미터 추가
+    strategy_data['backtest_params'] = optimal_params
+    data_manager.save()
+    
+    print("📊 최적화 파라미터 적용:")
+    print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
+    print(f"   - 이동평균: {optimal_params['ma_period']}일")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
+    
     # 최근 10일간 백테스트 (테스트용)
     end_date = datetime.now()
     start_date = end_date - timedelta(days=10)
@@ -76,6 +100,30 @@ def run_custom_backtest():
         transaction_cost=custom_config.transaction_cost
     )
     
+    # 최적화된 백테스트 파라미터 설정
+    from hanlyang_stock.utils.storage import get_data_manager
+    data_manager = get_data_manager()
+    strategy_data = data_manager.get_data()
+    
+    # 최적화 파라미터를 백테스트 파라미터로 설정
+    optimal_params = {
+        'min_close_days': 7,
+        'ma_period': 20,  # 30 → 20
+        'min_trade_amount': 300_000_000,  # 1억 → 3억
+        'min_technical_score': 0.7,  # 0.65 → 0.7
+        'max_positions': custom_config.max_positions  # 커스텀 설정 사용
+    }
+    
+    # strategy_data에 백테스트 파라미터 추가
+    strategy_data['backtest_params'] = optimal_params
+    data_manager.save()
+    
+    print("\n📊 최적화 파라미터 적용:")
+    print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
+    print(f"   - 이동평균: {optimal_params['ma_period']}일")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
+    
     # 1개월간 백테스트
     end_date = datetime.now()
     start_date = end_date - timedelta(days=30)
@@ -107,6 +155,31 @@ def run_period_comparison():
     
     # 기본 설정
     config = get_backtest_config('balanced')
+    
+    # 최적화된 백테스트 파라미터 설정
+    from hanlyang_stock.utils.storage import get_data_manager
+    data_manager = get_data_manager()
+    strategy_data = data_manager.get_data()
+    
+    # 최적화 파라미터를 백테스트 파라미터로 설정
+    optimal_params = {
+        'min_close_days': 7,
+        'ma_period': 20,  # 30 → 20
+        'min_trade_amount': 300_000_000,  # 1억 → 3억
+        'min_technical_score': 0.7,  # 0.65 → 0.7
+        'max_positions': 5
+    }
+    
+    # strategy_data에 백테스트 파라미터 추가
+    strategy_data['backtest_params'] = optimal_params
+    data_manager.save()
+    
+    print("📊 최적화 파라미터 적용:")
+    print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
+    print(f"   - 이동평균: {optimal_params['ma_period']}일")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
+    print()
     
     periods = [
         ("1주일", 7),

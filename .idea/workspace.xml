@@ -6,20 +6,14 @@
   <component name="ChangeListManager">
     <list default="true" id="481af4c9-239f-4fc7-8ff3-91922ba98bc7" name="변경" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/backtest_engine.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/data_validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/data_validator.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/data/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/data/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pyproject.toml" beforeDir="false" afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/run_modular_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_modular_backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_news_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_news_backtest.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/uv.lock" beforeDir="false" afterPath="$PROJECT_DIR$/uv.lock" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -98,7 +92,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1749993249202</updated>
-      <workItem from="1749993250307" duration="34586000" />
+      <workItem from="1749993250307" duration="70341000" />
     </task>
     <servers />
   </component>
