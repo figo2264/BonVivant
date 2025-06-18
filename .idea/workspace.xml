@@ -6,13 +6,18 @@
   <component name="ChangeListManager">
     <list default="true" id="481af4c9-239f-4fc7-8ff3-91922ba98bc7" name="변경" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/6-3.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/6-3.ipynb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/ai_model.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/ai_price_prediction_model.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/portfolio.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/portfolio.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/run_modular_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_modular_backtest.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/run_news_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_news_backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_technical_optimization.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_technical_optimization.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -23,10 +28,10 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "customColor": "",
-  "associatedIndex": 7
-}]]></component>
+  <component name="ProjectColorInfo">{
+  &quot;customColor&quot;: &quot;&quot;,
+  &quot;associatedIndex&quot;: 7
+}</component>
   <component name="ProjectId" id="2yXuThN7ubgGz7XQSHLTDmaWG6M" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -35,11 +40,14 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "Python.run_modular_backtest.executor": "Run",
+    "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "model-test__a",
     "last_opened_file_path": "/Users/seunghakim/projects/Hanlyang_Stock",
     "node.js.detected.package.eslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)"
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
   <component name="RecentsManager">
@@ -87,12 +95,13 @@
   </component>
   <component name="TaskManager">
     <task active="true" id="Default" summary="디폴트 작업">
-      <changelist id="89d9d084-d0de-423b-95a2-f51d3d764724" name="변경" comment="" />
+      <changelist id="481af4c9-239f-4fc7-8ff3-91922ba98bc7" name="변경" comment="" />
       <created>1749993249202</created>
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1749993249202</updated>
-      <workItem from="1749993250307" duration="70341000" />
+      <workItem from="1749993250307" duration="70840000" />
+      <workItem from="1750152535113" duration="28437000" />
     </task>
     <servers />
   </component>

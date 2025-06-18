@@ -529,18 +529,10 @@ class StockSelector:
         else:
             print(f"🏆 기술적 분석 최종 선정: {len(final_selection)}개 종목")
 
-        # 기술적 분석 정보 저장
-        if 'technical_analysis' not in strategy_data:
-            strategy_data['technical_analysis'] = {}
+        # 실시간 계산으로 전환 - 저장하지 않음
+        print("   🔄 기술적 점수는 실시간으로 계산됩니다")
         
-        for item in entry_tickers:
-            strategy_data['technical_analysis'][item['ticker']] = {
-                'score': item['technical_score'],
-                'timestamp': datetime.now().isoformat(),
-                'trade_amount': int(item['trade_amount']),
-                'selected': item in final_selection
-            }
-
+        # 데이터 저장 (technical_analysis 제외)
         self.data_manager.save()
         
         return final_selection
@@ -584,34 +576,17 @@ class StockSelector:
         Returns:
             dict: 선정 과정 요약
         """
-        strategy_data = self.data_manager.get_data()
-        
-        technical_analysis = strategy_data.get('technical_analysis', {})
-        
+        # 실시간 계산이므로 기본값만 반환
         summary = {
-            'technical_analysis_count': len(technical_analysis),
+            'technical_analysis_count': 0,
             'selected_count': 0,
             'avg_technical_score': 0,
             'max_technical_score': 0,
-            'min_technical_score': 1.0
+            'min_technical_score': 1.0,
+            'ai_predictions_count': 0  # 호환성을 위해 추가
         }
         
-        # 기술적 분석 통계
-        scores = []
-        for analysis in technical_analysis.values():
-            score = analysis.get('score', 0)
-            scores.append(score)
-            
-            if analysis.get('selected', False):
-                summary['selected_count'] += 1
-            
-            if score > summary['max_technical_score']:
-                summary['max_technical_score'] = score
-            if score < summary['min_technical_score']:
-                summary['min_technical_score'] = score
-        
-        if scores:
-            summary['avg_technical_score'] = sum(scores) / len(scores)
+        print("   🔄 기술적 분석 요약은 실시간 계산 기반으로 제공됩니다")
         
         return summary
 

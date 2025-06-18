@@ -158,7 +158,7 @@ class TechnicalOptimizer:
             
             # 백테스트 실행
             engine = BacktestEngine(self.initial_capital, self.transaction_cost)
-            results = engine.run_backtest(start_date, end_date, ai_enabled=False)
+            results = engine.run_backtest(start_date, end_date, news_analysis_enabled=False)
             
             return results
             

@@ -65,13 +65,15 @@ def main():
         # 6. 하이브리드 전략 설정 (기술적 분석 + 뉴스 감정 분석)
         if 'hybrid_strategy_enabled' not in strategy_data:
             strategy_data['hybrid_strategy_enabled'] = True
-            strategy_data['news_weight'] = 0.5  # 뉴스 가중치 50%
-            strategy_data['technical_weight'] = 0.5  # 기술적 가중치 50%
-            strategy_data['min_combined_score'] = 0.6  # 최소 종합 점수
+            strategy_data['news_weight'] = 0.5  # 뉴스 가중치 50% (5:5 비율로 변경)
+            strategy_data['technical_weight'] = 0.5  # 기술적 가중치 50% (5:5 비율로 변경)
+            strategy_data['min_combined_score'] = 0.7  # 최소 종합 점수 (백테스트 엔진과 동일)
+            strategy_data['block_negative_news'] = True  # 뉴스 감정이 부정적일 때 매수 차단
             print("✅ 하이브리드 전략 활성화 (기술적 50% + 뉴스 50%)")
             print(f"   📊 기술적 가중치: {strategy_data['technical_weight']*100:.0f}%")
             print(f"   📰 뉴스 가중치: {strategy_data['news_weight']*100:.0f}%")
             print(f"   🎯 최소 종합 점수: {strategy_data['min_combined_score']*100:.0f}%")
+            print(f"   🚫 부정적 뉴스 차단: {'활성화' if strategy_data['block_negative_news'] else '비활성화'}")
         
         # 7. 기본 품질 필터 설정 (1단계 다층적 필터링)
         if 'quality_filter_enabled' not in strategy_data:
@@ -106,6 +108,32 @@ def main():
             strategy_data['debug_news'] = True  # 뉴스 분석 디버깅 모드 활성화
             print("🔍 뉴스 분석 디버깅 모드: 활성화")
         
+        # 11. 피라미딩 전략 설정 (백테스트 엔진과 동일하게)
+        if 'pyramiding_enabled' not in strategy_data:
+            strategy_data['pyramiding_enabled'] = True  # 피라미딩 활성화
+            strategy_data['pyramiding_min_score'] = 0.75  # 피라미딩 최소 점수 (75%)
+            strategy_data['pyramiding_max_position'] = 0.3  # 종목당 최대 포지션 (30%)
+            strategy_data['pyramiding_investment_ratio'] = 0.5  # 추가 매수 비율 (50%)
+            strategy_data['pyramiding_reset_threshold'] = 0.80  # 보유기간 리셋 기준 (80%)
+            strategy_data['pyramiding_max_resets'] = 2  # 최대 리셋 횟수
+            print("🔄 피라미딩 전략 활성화")
+            print(f"   📊 최소 점수: {strategy_data['pyramiding_min_score']*100:.0f}%")
+            print(f"   💰 최대 포지션: {strategy_data['pyramiding_max_position']*100:.0f}%")
+            print(f"   📈 추가 매수 비율: {strategy_data['pyramiding_investment_ratio']*100:.0f}%")
+            print(f"   🔄 보유기간 리셋: {strategy_data['pyramiding_reset_threshold']*100:.0f}% 이상")
+            print(f"   🔢 최대 리셋 횟수: {strategy_data['pyramiding_max_resets']}회")
+            print(f"   📌 리셋 시 보유기간이 1일로 초기화됩니다")
+        
+        # 12. 전략별 최대 보유기간 설정
+        if 'max_holding_days' not in strategy_data:
+            strategy_data['max_holding_days'] = {
+                'basic': 5,      # 기본 전략: 5일
+                'hybrid': 10     # 하이브리드 전략: 10일
+            }
+            print("📅 전략별 최대 보유기간 설정")
+            print(f"   📊 기본 전략: {strategy_data['max_holding_days']['basic']}일")
+            print(f"   🤝 하이브리드 전략: {strategy_data['max_holding_days']['hybrid']}일")
+        
         # 설정 저장
         data_manager.save()
         
@@ -119,11 +147,19 @@ def main():
         if strategy_data.get('hybrid_strategy_enabled'):
             print(f"      - 기술적 분석: {strategy_data.get('technical_weight', 0.5)*100:.0f}%")
             print(f"      - 뉴스 감정: {strategy_data.get('news_weight', 0.5)*100:.0f}%")
+            print(f"      - 부정적 뉴스 차단: {'활성화' if strategy_data.get('block_negative_news', True) else '비활성화'}")
         print(f"   💎 품질 필터: {'활성화' if strategy_data.get('quality_filter_enabled') else '비활성화'}")
         if strategy_data.get('quality_filter_enabled'):
             print(f"      - 최소 시가총액: {strategy_data.get('min_market_cap', 500_000_000_000)/1_000_000_000:.0f}억원")
             print(f"      - 최소 거래대금: {strategy_data.get('enhanced_min_trade_amount', 2_000_000_000)/1_000_000_000:.0f}억원")
         print(f"   📈 최대 선정 종목: {strategy_data.get('max_selections', 3)}개")
+        print(f"   🔄 피라미딩 전략: {'활성화' if strategy_data.get('pyramiding_enabled') else '비활성화'}")
+        if strategy_data.get('pyramiding_enabled'):
+            print(f"      - 최소 점수: {strategy_data.get('pyramiding_min_score', 0.75)*100:.0f}%")
+            print(f"      - 최대 포지션: {strategy_data.get('pyramiding_max_position', 0.3)*100:.0f}%")
+            print(f"      - 최대 리셋: {strategy_data.get('pyramiding_max_resets', 2)}회")
+        print(f"   📅 최대 보유기간: 기본 {strategy_data.get('max_holding_days', {}).get('basic', 5)}일, "
+              f"하이브리드 {strategy_data.get('max_holding_days', {}).get('hybrid', 10)}일")
         print(f"   🔍 뉴스 디버깅 모드: {'활성화' if strategy_data.get('debug_news') else '비활성화'}")
         
     except Exception as e:
@@ -173,8 +209,8 @@ def main():
                 break
 
         # 15시 20분~22분 - 매수 전용 실행 (여유시간 2분)
-        # elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
-        elif True:  # 테스트용 (주석 해제하여 즉시 실행)
+        elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
+        # elif True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
                 print("🚀 오후 매수 전략 실행 시작! (하이브리드: 기술적 분석 + 뉴스 감정 분석)")
                 

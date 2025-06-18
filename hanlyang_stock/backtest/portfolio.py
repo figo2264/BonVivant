@@ -37,9 +37,10 @@ class Portfolio:
         print(f"   거래 비용: {transaction_cost*100:.1f}%")
     
     def buy_stock(self, ticker: str, price: float, investment_amount: float, 
-                  current_date: str, additional_info: Dict[str, Any] = None) -> bool:
+                  current_date: str, additional_info: Dict[str, Any] = None,
+                  reset_holding_period: bool = False) -> bool:
         """
-        주식 매수
+        주식 매수 (피라미딩 지원)
         
         Args:
             ticker: 종목 코드
@@ -47,6 +48,7 @@ class Portfolio:
             investment_amount: 투자 금액
             current_date: 매수 날짜
             additional_info: 추가 정보 (AI 점수, 기술적 점수 등)
+            reset_holding_period: 보유 기간 리셋 여부
             
         Returns:
             bool: 매수 성공 여부
@@ -70,21 +72,65 @@ class Portfolio:
             # 매수 실행
             self.cash -= total_cost
             
-            # holdings 딕셔너리 안전한 업데이트
-            if ticker not in self.holdings:
-                self.holdings[ticker] = {}
-            
-            self.holdings[ticker].update({
-                'quantity': quantity,
-                'buy_price': price,
-                'buy_date': current_date
-            })
+            # 이미 보유 중인 종목인지 확인 (피라미딩)
+            is_pyramiding = False
+            if ticker in self.holdings and self.holdings[ticker].get('quantity', 0) > 0:
+                # 기존 보유 정보
+                existing_quantity = self.holdings[ticker]['quantity']
+                existing_avg_price = self.holdings[ticker]['buy_price']
+                existing_investment = existing_quantity * existing_avg_price
+                
+                # 새로운 평균 단가 계산
+                new_quantity = existing_quantity + quantity
+                new_avg_price = (existing_investment + actual_investment) / new_quantity
+                
+                # holdings 업데이트
+                self.holdings[ticker]['quantity'] = new_quantity
+                self.holdings[ticker]['buy_price'] = new_avg_price
+                self.holdings[ticker]['last_buy_date'] = current_date
+                
+                # 보유 기간 리셋 여부
+                if reset_holding_period:
+                    # 리셋 전의 보유기간 저장
+                    old_holding_days = self.holding_period.get(ticker, 0)
+                    self.holding_period[ticker] = 1
+                    print(f"🔄 {ticker} 보유기간 리셋 (현재 보유일: {old_holding_days}일 → 1일)")
+                    
+                    # 리셋 정보 저장
+                    if 'additional_info' not in self.holdings[ticker]:
+                        self.holdings[ticker]['additional_info'] = {}
+                    self.holdings[ticker]['additional_info']['reset_date'] = current_date
+                    self.holdings[ticker]['additional_info']['reset_count'] = \
+                        self.holdings[ticker]['additional_info'].get('reset_count', 0) + 1
+                
+                is_pyramiding = True
+                print(f"📥 {ticker} 피라미딩 매수: {quantity:,}주 @ {price:,}원")
+                print(f"   총 보유: {new_quantity:,}주, 평균단가: {new_avg_price:,.0f}원")
+                
+            else:
+                # 신규 매수
+                self.holdings[ticker] = {
+                    'quantity': quantity,
+                    'buy_price': price,
+                    'buy_date': current_date,
+                    'last_buy_date': current_date,
+                    'additional_info': {
+                        'reset_count': 0  # 초기화
+                    }
+                }
+                self.holding_period[ticker] = 1
+                
+                print(f"📥 {ticker} 신규 매수: {quantity:,}주 @ {price:,}원 (투자: {actual_investment:,}원)")
             
             # 추가 정보 저장
             if additional_info:
-                self.holdings[ticker].update(additional_info)
-            
-            self.holding_period[ticker] = 1
+                if 'additional_info' not in self.holdings[ticker]:
+                    self.holdings[ticker]['additional_info'] = {}
+                
+                # 기존 정보와 병합 (리셋 정보는 유지)
+                existing_info = self.holdings[ticker]['additional_info'].copy()
+                existing_info.update(additional_info)
+                self.holdings[ticker]['additional_info'] = existing_info
             
             # 거래 기록
             trade_record = {
@@ -94,7 +140,8 @@ class Portfolio:
                 'quantity': quantity,
                 'price': price,
                 'amount': actual_investment,
-                'fee': transaction_fee
+                'fee': transaction_fee,
+                'is_pyramiding': is_pyramiding
             }
             
             if additional_info:
@@ -102,7 +149,6 @@ class Portfolio:
                 
             self.trade_history.append(trade_record)
             
-            print(f"📥 {ticker} 매수 완료: {quantity:,}주 @ {price:,}원 (투자: {actual_investment:,}원)")
             return True
             
         except Exception as e:
@@ -112,7 +158,7 @@ class Portfolio:
     def sell_stock(self, ticker: str, price: float, current_date: str, 
                    sell_reason: str = "") -> bool:
         """
-        주식 매도
+        주식 매도 (부분 매도 지원)
         
         Args:
             ticker: 종목 코드
@@ -138,10 +184,13 @@ class Portfolio:
             transaction_fee = sell_amount * self.transaction_cost
             net_amount = sell_amount - transaction_fee
             
-            # 손익 계산
+            # 손익 계산 (평균 단가 기준)
             buy_amount = quantity * buy_price
-            profit = net_amount - buy_amount
-            profit_rate = (profit / buy_amount) * 100 if buy_amount > 0 else 0
+            buy_fee = buy_amount * self.transaction_cost  # 매수 시 수수료 고려
+            total_buy_cost = buy_amount + buy_fee
+            
+            profit = net_amount - total_buy_cost
+            profit_rate = (profit / total_buy_cost) * 100 if total_buy_cost > 0 else 0
             
             # 매도 실행
             self.cash += net_amount
@@ -159,8 +208,13 @@ class Portfolio:
                 'profit': profit,
                 'profit_rate': profit_rate,
                 'holding_days': self.holding_period.get(ticker, 0),
-                'sell_reason': sell_reason
+                'sell_reason': sell_reason,
+                'avg_buy_price': buy_price  # 평균 매수 단가 기록
             })
+            
+            # 보유기간 초기화
+            if ticker in self.holding_period:
+                self.holding_period[ticker] = 0
             
             print(f"📤 {ticker} 매도 완료: 수익률 {profit_rate:+.2f}% ({self.holding_period.get(ticker, 0)}일 보유)")
             return True

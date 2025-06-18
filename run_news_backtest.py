@@ -131,9 +131,14 @@ def run_news_strategy_optimization():
     return optimal_days, optimal_threshold
 
 
-def run_news_backtest(test_period_days: int = 30, debug: bool = False):
+def run_news_backtest(test_period_days: int = 10, debug: bool = False):
     """뉴스 기반 백테스트 실행 (하이브리드 전략)"""
-    print("📰 하이브리드 백테스트 실행 (기술적 분석 + 뉴스 감정 분석)")
+    # 최소 기간 검증
+    if test_period_days < 10:
+        print(f"⚠️ 백테스트 기간이 너무 짧습니다. 최소 10일로 설정합니다.")
+        test_period_days = 10
+    
+    print("📰 하이브리드 백테스트 실행 (기술적 분석 50% + 뉴스 감정 분석 50%)")
     print("=" * 60)
     
     # 기본 설정으로 백테스트 엔진 생성
@@ -187,8 +192,8 @@ def run_news_backtest(test_period_days: int = 30, debug: bool = False):
         results = engine.run_backtest(
             start_str, 
             end_str, 
-            ai_enabled=True,
-            use_news_strategy=True  # 뉴스 전략 사용
+            news_analysis_enabled=True,  # 뉴스 분석 기능 활성화
+            use_news_strategy=True       # 뉴스 전략 사용
         )
         
         # 결과 저장
@@ -229,8 +234,13 @@ def run_news_backtest(test_period_days: int = 30, debug: bool = False):
         return None
 
 
-def compare_strategies():
+def compare_strategies(test_period_days: int = 30):
     """기술적 분석 vs 하이브리드 전략 비교"""
+    # 최소 기간 검증
+    if test_period_days < 10:
+        print(f"⚠️ 백테스트 기간이 너무 짧습니다. 최소 10일로 설정합니다.")
+        test_period_days = 10
+    
     print("📊 전략 비교: 기술적 분석 vs 하이브리드 (기술적 + 뉴스)")
     print("=" * 60)
     
@@ -263,9 +273,11 @@ def compare_strategies():
     
     # 테스트 기간
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=90)  # 3개월
+    start_date = end_date - timedelta(days=test_period_days)
     start_str = start_date.strftime('%Y-%m-%d')
     end_str = end_date.strftime('%Y-%m-%d')
+    
+    print(f"📅 백테스트 기간: {start_str} ~ {end_str} ({test_period_days}일)")
     
     results = {}
     
@@ -274,7 +286,7 @@ def compare_strategies():
     tech_engine = BacktestEngine(config.initial_capital, config.transaction_cost)
     
     try:
-        tech_results = tech_engine.run_backtest(start_str, end_str, ai_enabled=False)
+        tech_results = tech_engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
         results['technical'] = tech_results
         print(f"✅ 기술적 분석 완료")
     except Exception as e:
@@ -288,7 +300,7 @@ def compare_strategies():
     try:
         news_results = news_engine.run_backtest(
             start_str, end_str, 
-            ai_enabled=True,
+            news_analysis_enabled=True,  # 뉴스 분석 기능 활성화
             use_news_strategy=True
         )
         results['news'] = news_results
@@ -351,13 +363,14 @@ def main():
         print("\n실행할 작업을 선택하세요:")
         print("1) 뉴스 수집 테스트 (종목별)")
         print("2) 뉴스 전략 파라미터 최적화 (2010~2019 데이터)")
-        print("3) 하이브리드 백테스트 (최근 30일)")
-        print("4) 하이브리드 백테스트 (커스텀 기간)")
-        print("5) 전략 비교 (기술적 vs 하이브리드)")
-        print("6) 종료")
+        print("3) 하이브리드 백테스트 (최근 10일)")
+        print("4) 하이브리드 백테스트 (커스텀 기간, 최소 10일)")
+        print("5) 전략 비교 (기술적 vs 하이브리드, 기본 30일)")
+        print("6) 전략 비교 (커스텀 기간, 최소 10일)")
+        print("7) 종료")
         
         try:
-            choice = input("\n선택 (1-6): ").strip()
+            choice = input("\n선택 (1-7): ").strip()
             
             if choice == '1':
                 # 뉴스 수집 테스트
@@ -381,28 +394,38 @@ def main():
                 
             elif choice == '3':
                 debug = input("\n디버그 모드를 사용하시겠습니까? (y/n): ").strip().lower() == 'y'
-                run_news_backtest(30, debug=debug)
+                run_news_backtest(10, debug=debug)  # 기본 10일로 변경
                 
             elif choice == '4':
                 try:
-                    days = int(input("\n백테스트 기간 (일): ").strip())
-                    if days > 0:
-                        debug = input("디버그 모드를 사용하시겠습니까? (y/n): ").strip().lower() == 'y'
-                        run_news_backtest(days, debug=debug)
-                    else:
-                        print("기간은 양수여야 합니다.")
+                    days = int(input("\n백테스트 기간 (일, 최소 10일): ").strip())
+                    if days < 10:
+                        print(f"⚠️ 최소 10일 이상이어야 합니다. 10일로 설정합니다.")
+                        days = 10
+                    debug = input("디버그 모드를 사용하시겠습니까? (y/n): ").strip().lower() == 'y'
+                    run_news_backtest(days, debug=debug)
                 except ValueError:
                     print("올바른 숫자를 입력하세요.")
                     
             elif choice == '5':
-                compare_strategies()
+                compare_strategies(30)  # 기본 30일
                 
             elif choice == '6':
+                try:
+                    days = int(input("\n비교 백테스트 기간 (일, 최소 10일): ").strip())
+                    if days < 10:
+                        print(f"⚠️ 최소 10일 이상이어야 합니다. 10일로 설정합니다.")
+                        days = 10
+                    compare_strategies(days)
+                except ValueError:
+                    print("올바른 숫자를 입력하세요.")
+                    
+            elif choice == '7':
                 print("프로그램을 종료합니다.")
                 break
                 
             else:
-                print("잘못된 선택입니다. 1-6 중에서 선택해주세요.")
+                print("잘못된 선택입니다. 1-7 중에서 선택해주세요.")
                 
         except KeyboardInterrupt:
             print("\n프로그램을 종료합니다.")

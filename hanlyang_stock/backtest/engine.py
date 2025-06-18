@@ -46,7 +46,7 @@ class BacktestEngine:
         self.stock_selector.set_backtest_mode(True)
         
         # 백테스트 설정
-        self.ai_enabled = False  # AI 기능 비활성화
+        self.news_analysis_enabled = False  # 뉴스 분석 기능 비활성화 (기본값)
         self.use_news_strategy = False  # 뉴스 전략 사용 여부
         
         print(f"🚀 모듈화된 백테스트 엔진 초기화 완료")
@@ -55,7 +55,7 @@ class BacktestEngine:
         if debug:
             print(f"   디버그 모드: 활성화")
     
-    def run_backtest(self, start_date: str, end_date: str, ai_enabled: bool = True, 
+    def run_backtest(self, start_date: str, end_date: str, news_analysis_enabled: bool = False, 
                      use_news_strategy: bool = False) -> Dict[str, Any]:
         """
         백테스팅 실행 (모듈화된 버전)
@@ -63,7 +63,7 @@ class BacktestEngine:
         Args:
             start_date: 시작 날짜 (YYYY-MM-DD)
             end_date: 종료 날짜 (YYYY-MM-DD)
-            ai_enabled: AI 기능 활성화 여부 (현재는 사용하지 않음)
+            news_analysis_enabled: 뉴스 분석 기능 활성화 여부 (하이브리드 전략을 위해 필요)
             use_news_strategy: 뉴스 전략 사용 여부
             
         Returns:
@@ -81,8 +81,8 @@ class BacktestEngine:
         
         print("=" * 60)
         
-        # AI 기능 비활성화
-        self.ai_enabled = False
+        # 뉴스 분석 기능 설정
+        self.news_analysis_enabled = news_analysis_enabled
         
         # 날짜 범위 생성
         start = pd.to_datetime(start_date)
@@ -136,7 +136,7 @@ class BacktestEngine:
                 print(f"   ❌ {ticker}: 데이터 검증 실패 - 매도 스킵")
                 continue
             
-            # 손실 제한 체크 (우선순위 최고)
+            # 1. 손실 제한 체크 (최우선)
             buy_price = holding.get('buy_price', 0)
             stop_loss_sell, current_price, loss_rate = self.data_validator.check_stop_loss(
                 ticker, buy_price, current_date, stop_loss_rate=-0.05
@@ -144,31 +144,42 @@ class BacktestEngine:
             
             if stop_loss_sell:
                 should_sell = True
-                sell_reason = f"손실제한 (손실률: {loss_rate*100:.1f}%)"
+                sell_reason = f"손실 제한 매도 - 손실률 {loss_rate*100:.1f}%"
                 print(f"   🛑 {ticker}: 손실 제한 매도 - 손실률 {loss_rate*100:.1f}%")
             
-            # 뉴스 전략인 경우 보유 기간 확인
-            if self.use_news_strategy:
-                # 매수 시 저장된 뉴스 신호 확인
+            # 2. 전략별 목표 기간 체크 (손실제한이 아닌 경우만)
+            elif self.use_news_strategy:
+                # 뉴스 전략인 경우
                 news_signal = holding.get('additional_info', {}).get('news_signal', {})
                 planned_holding_days = news_signal.get('holding_days', 5)
                 
+                # 리셋 횟수 확인
+                reset_count = holding.get('additional_info', {}).get('reset_count', 0)
+                max_resets = 2  # 최대 2번까지만 리셋 허용
+                
                 if holding_days >= planned_holding_days:
-                    should_sell = True
-                    sell_reason = f"뉴스 전략 목표 보유기간 ({planned_holding_days}일) 달성"
-                    print(f"   → {ticker}: 뉴스 전략 목표 기간 달성으로 매도")
+                    if reset_count >= max_resets:
+                        should_sell = True
+                        sell_reason = f"최대 리셋 횟수({max_resets}회) 도달"
+                        print(f"   → {ticker}: 최대 리셋 횟수 도달로 매도")
+                    else:
+                        should_sell = True
+                        sell_reason = f"뉴스 전략 목표 기간({planned_holding_days}일) 달성"
+                        print(f"   → {ticker}: 뉴스 전략 목표 기간 달성으로 매도")
             else:
-                # 기본 3일 룰
+                # 기본 전략인 경우 (3일 룰)
                 if holding_days >= 3:
                     should_sell = True
-                    sell_reason = f"보유기간 ({holding_days}일)"
+                    sell_reason = f"기본 보유기간(3일) 달성"
                     print(f"   → {ticker}: 3일 이상 보유로 매도")
             
-            # 안전장치: 5일 이상은 무조건 매도
-            if holding_days >= 5:
-                should_sell = True
-                sell_reason = f"5일 안전룰"
-                print(f"   → {ticker}: 5일 안전룰 적용")
+            # 3. 최대 보유기간 체크 (전략별 차별화)
+            if not should_sell:  # 아직 매도 결정이 안 된 경우만
+                max_holding_days = 10 if self.use_news_strategy else 5
+                if holding_days >= max_holding_days:
+                    should_sell = True
+                    sell_reason = f"최대 보유기간({max_holding_days}일) 도달"
+                    print(f"   → {ticker}: 최대 보유기간 도달로 매도")
             
             # 매도 실행
             if should_sell:
@@ -187,24 +198,88 @@ class BacktestEngine:
         return {'sold_count': sold_count, 'total_profit': 0}  # 실제 수익은 거래내역에서 계산
     
     def _execute_buy_strategy(self, current_date: str) -> Dict[str, Any]:
-        """매수 전략 실행"""
+        """매수 전략 실행 (피라미딩 지원)"""
         # 현재 보유 종목 수 확인
         current_holdings = self.portfolio.get_current_holdings()
         max_positions = 5
         available_slots = max_positions - len(current_holdings)
         
-        if available_slots <= 0:
+        # 피라미딩을 고려한 매수 가능 여부 체크
+        # 보유 종목이 5개여도 피라미딩은 가능
+        if available_slots <= 0 and not current_holdings:
             print(f"📊 포트폴리오 한계 도달 (현재 {len(current_holdings)}개 보유)")
             return {'bought_count': 0, 'total_invested': 0}
         
-        print(f"📊 매수 전략 실행 - 사용 가능 슬롯: {available_slots}개")
+        print(f"📊 매수 전략 실행 - 보유: {len(current_holdings)}개, 신규 가능: {available_slots}개")
         
-        # 종목 선정
+        # 종목 선정 (신규 후보)
         candidates = self._select_buy_candidates(current_date)
+        
+        # 보유 종목도 재평가해서 피라미딩 후보로 추가
+        if current_holdings and self.use_news_strategy:
+            print("🔄 보유 종목 피라미딩 평가...")
+            
+            for ticker, holding in current_holdings.items():
+                try:
+                    # 회사명 조회
+                    company_name = self.news_selector._get_company_name(ticker)
+                    
+                    # 기술적 점수 재계산 (간단히 현재 기술적 점수 사용)
+                    technical_score = holding.get('additional_info', {}).get('technical_score', 0.7)
+                    
+                    # 뉴스 분석
+                    from ..analysis.news_sentiment import get_news_analyzer
+                    news_analyzer = get_news_analyzer(debug=self.debug)
+                    
+                    news_list = news_analyzer.fetch_ticker_news(ticker, company_name, current_date)
+                    if news_list:
+                        news_analysis = news_analyzer.analyze_news_sentiment(
+                            news_list, ticker, company_name
+                        )
+                        
+                        news_score = news_analysis.get('avg_confidence', 0.5)
+                        news_sentiment = news_analysis.get('sentiment', '중립')
+                        
+                        # 부정적 감정이면 스킵
+                        if news_sentiment == '부정':
+                            continue
+                        
+                        # 종합 점수 계산
+                        combined_score = technical_score * 0.5 + news_score * 0.5
+                        
+                        # 피라미딩 후보로 추가
+                        if combined_score >= 0.75:  # 피라미딩 최소 점수
+                            print(f"   → {ticker}: 피라미딩 후보 추가 (점수: {combined_score*100:.1f}%)")
+                            candidates.append({
+                                'ticker': ticker,
+                                'technical_score': technical_score,
+                                'news_score': news_score,
+                                'news_sentiment': news_sentiment,
+                                'combined_score': combined_score,
+                                'is_holding': True,
+                                'news_signal': {
+                                    'ticker': ticker,
+                                    'company_name': company_name,
+                                    'sentiment': news_sentiment,
+                                    'confidence': news_score,
+                                    'holding_days': self.news_selector.optimal_holding_days,
+                                    'predictions': {
+                                        f'{d}d': news_analysis.get(f'prob_{d}', 0.5) 
+                                        for d in [1, 5, 10, 20]
+                                    }
+                                }
+                            })
+                
+                except Exception as e:
+                    print(f"   ❌ {ticker} 재평가 오류: {e}")
+                    continue
         
         if not candidates:
             print("📊 매수 대상 종목이 없습니다.")
             return {'bought_count': 0, 'total_invested': 0}
+        
+        # 점수 기준으로 정렬
+        candidates.sort(key=lambda x: x.get('combined_score', x.get('technical_score', 0)), reverse=True)
         
         # 매수 실행
         return self._execute_buy_orders(candidates, available_slots, current_date)
@@ -270,9 +345,14 @@ class BacktestEngine:
                             candidate['news_score'] = news_analysis.get('avg_confidence', 0.5)
                             candidate['news_sentiment'] = news_analysis.get('sentiment', '중립')
                             
-                            # 종합 점수 계산 (기술적 점수 70% + 뉴스 점수 30%)
-                            technical_weight = 0.7
-                            news_weight = 0.3
+                            # ⭐ 부정적 감정인 경우 즉시 제외
+                            if candidate['news_sentiment'] == '부정':
+                                print(f"      ❌ 뉴스 감정이 부정적이어서 매수 후보에서 제외")
+                                continue
+                            
+                            # 종합 점수 계산 (기술적 점수 50% + 뉴스 점수 50%)
+                            technical_weight = 0.5
+                            news_weight = 0.5
                             candidate['combined_score'] = (
                                 candidate['technical_score'] * technical_weight + 
                                 candidate['news_score'] * news_weight
@@ -315,14 +395,14 @@ class BacktestEngine:
                 # 종합 점수 기준으로 정렬
                 enhanced_candidates.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
                 
-                # 최소 기준 필터링 (종합 점수 0.6 이상만)
-                final_candidates = [c for c in enhanced_candidates if c.get('combined_score', 0) >= 0.6]
+                # 최소 기준 필터링 (종합 점수 0.7 이상만)
+                final_candidates = [c for c in enhanced_candidates if c.get('combined_score', 0) >= 0.7]
                 
                 if not final_candidates and enhanced_candidates:
-                    # 기준에 맞는 종목이 없으면 상위 3개만 선택
-                    final_candidates = enhanced_candidates[:3]
+                    # 기준에 맞는 종목이 없으면 상위 1개만 선택
+                    final_candidates = enhanced_candidates[:1]
                 
-                print(f"\n📊 최종 선정: {len(final_candidates)}개 종목 (종합 점수 0.6 이상)")
+                print(f"\n📊 최종 선정: {len(final_candidates)}개 종목 (종합 점수 0.7 이상)")
                 for i, cand in enumerate(final_candidates[:5]):
                     print(f"   {i+1}. {cand['ticker']}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
                           f"(기술적 {cand['technical_score']*100:.1f}%, "
@@ -344,25 +424,34 @@ class BacktestEngine:
     
     def _execute_buy_orders(self, candidates: List[Dict[str, Any]], available_slots: int, 
                           current_date: str) -> Dict[str, Any]:
-        """매수 주문 실행"""
+        """매수 주문 실행 (피라미딩 지원)"""
         bought_count = 0
         total_invested = 0
         
+        # 현재 보유 종목 정보
+        current_holdings = self.portfolio.get_current_holdings()
+        
+        # 포트폴리오 가치 계산 (포지션 크기 제한용)
+        current_prices = {}
+        for ticker in current_holdings:
+            price = self.data_validator.get_valid_price(ticker, current_date)
+            if price:
+                current_prices[ticker] = price
+        
+        portfolio_value = self.portfolio.calculate_portfolio_value(current_prices)
+        max_position_value = portfolio_value * 0.3  # 종목당 최대 30%
+        
         # 종목당 투자 금액 계산
         available_cash = self.portfolio.cash * 0.8  # 현금의 80% 사용
-        investment_per_stock = available_cash / available_slots if available_slots > 0 else 0
+        # 피라미딩 고려해서 더 많은 슬롯으로 나눔
+        investment_per_stock = available_cash / max(available_slots + len(current_holdings), 1)
         
         print(f"   사용 가능 현금: {available_cash:,.0f}원")
         print(f"   종목당 기본 투자: {investment_per_stock:,.0f}원")
+        print(f"   종목당 최대 포지션: {max_position_value:,.0f}원")
         
-        for candidate in candidates[:available_slots]:
+        for candidate in candidates:
             ticker = candidate['ticker']
-            
-            # 현재 보유 중인 종목은 스킵
-            current_holdings = self.portfolio.get_current_holdings()
-            if ticker in current_holdings:
-                print(f"   {ticker}: 이미 보유 중 - 스킵")
-                continue
             
             # 현재가 조회
             current_price = self.data_validator.get_valid_price(ticker, current_date)
@@ -370,10 +459,49 @@ class BacktestEngine:
                 print(f"   ❌ {ticker}: 현재가 조회 실패")
                 continue
             
-            # 기술적 점수 기반 투자 금액 조정
-            investment_amount = self._determine_investment_amount(
-                candidate, investment_per_stock
-            )
+            # 보유 중인 종목인지 확인
+            is_holding = ticker in current_holdings
+            
+            if is_holding:
+                # 피라미딩 처리
+                holding = current_holdings[ticker]
+                current_position_value = holding['quantity'] * current_price
+                
+                # 최대 포지션 크기 체크
+                if current_position_value >= max_position_value:
+                    print(f"   ⚠️ {ticker}: 최대 포지션 도달 ({current_position_value:,.0f}원 / {max_position_value:,.0f}원)")
+                    continue
+                
+                # 피라미딩 최소 점수 체크 (75% 이상)
+                min_pyramiding_score = 0.75
+                score = candidate.get('combined_score', candidate.get('technical_score', 0))
+                
+                if score < min_pyramiding_score:
+                    print(f"   {ticker}: 보유 중 - 피라미딩 점수 미달 ({score*100:.1f}% < {min_pyramiding_score*100}%)")
+                    continue
+                
+                print(f"   🔄 {ticker}: 피라미딩 매수 검토 (점수: {score*100:.1f}%)")
+                
+                # 추가 투자 금액 결정 (남은 허용 금액의 50% 또는 기본 투자금의 50%)
+                remaining_allowed = max_position_value - current_position_value
+                investment_amount = min(investment_per_stock * 0.5, remaining_allowed)
+                
+                # 보유 기간 리셋 여부 (80% 이상일 때)
+                reset_holding = score >= 0.80
+                if reset_holding:
+                    print(f"   → 높은 점수로 보유기간 리셋 예정")
+                
+            else:
+                # 신규 매수
+                if len(current_holdings) >= 5:
+                    print(f"   ⚠️ {ticker}: 포트폴리오 한계 도달 (5개)")
+                    continue
+                
+                # 기본 투자 금액 결정
+                investment_amount = self._determine_investment_amount(
+                    candidate, investment_per_stock
+                )
+                reset_holding = False  # 신규 매수는 리셋 불필요
             
             # 현금 부족 체크
             remaining_balance = self.portfolio.cash - total_invested - 2_000_000  # 200만원 안전자금
@@ -401,7 +529,8 @@ class BacktestEngine:
                     additional_info['news_signal'] = candidate['news_signal']
             
             success = self.portfolio.buy_stock(
-                ticker, current_price, investment_amount, current_date, additional_info
+                ticker, current_price, investment_amount, current_date, 
+                additional_info, reset_holding_period=reset_holding
             )
             
             if success:
@@ -409,12 +538,13 @@ class BacktestEngine:
                 total_invested += investment_amount
                 
                 # 상세 매수 정보 출력
+                action = "피라미딩" if is_holding else "신규"
                 if self.use_news_strategy:
-                    print(f"✅ {ticker} 매수 완료 - 종합점수: {candidate.get('combined_score', 0)*100:.1f}% "
+                    print(f"✅ {ticker} {action} 매수 완료 - 종합점수: {candidate.get('combined_score', 0)*100:.1f}% "
                           f"(기술적: {candidate.get('technical_score', 0)*100:.1f}%, "
                           f"뉴스: {candidate.get('news_score', 0)*100:.1f}%)")
                 else:
-                    print(f"✅ {ticker} 매수 완료 - 기술적 점수: {candidate.get('technical_score', 0)*100:.1f}%")
+                    print(f"✅ {ticker} {action} 매수 완료 - 기술적 점수: {candidate.get('technical_score', 0)*100:.1f}%")
         
         print(f"📊 매수 완료: {bought_count}개 종목, 총 투자 {total_invested:,.0f}원")
         return {'bought_count': bought_count, 'total_invested': total_invested}
@@ -437,10 +567,6 @@ class BacktestEngine:
             multiplier = 1.0
         else:                       # 약한 신호: 0.8배
             multiplier = 0.8
-        
-        # 뉴스 감정이 부정적인 경우 추가 감소
-        if self.use_news_strategy and candidate.get('news_sentiment') == '부정':
-            multiplier *= 0.7
         
         return base_amount * multiplier
     
@@ -520,7 +646,7 @@ def run_backtest(start_date: str, end_date: str, initial_capital: float = 10_000
         Dict: 백테스트 결과
     """
     engine = BacktestEngine(initial_capital, transaction_cost)
-    return engine.run_backtest(start_date, end_date, ai_enabled=False)
+    return engine.run_backtest(start_date, end_date, news_analysis_enabled=False)
 
 
 # 사용 예시

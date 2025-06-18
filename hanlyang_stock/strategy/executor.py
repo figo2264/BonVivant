@@ -109,10 +109,21 @@ class SellExecutor:
             return False, 0, 0
     
     def _determine_sell_candidates(self, holdings: Dict[str, int]) -> List[str]:
-        """매도 후보 종목 결정 - 백테스트 엔진 로직 완전 적용"""
+        """매도 후보 종목 결정 - 백테스트 엔진 로직 완전 적용
+        
+        매도 우선순위:
+        1순위: 손실제한 (-5%)
+        2순위: 전략별 목표 기간
+          - 뉴스 전략: news_signal의 holding_days
+          - 기본 전략: 3일
+        3순위: 최대 보유기간
+          - 뉴스 전략: 10일
+          - 기본 전략: 5일
+        """
         tickers_to_sell = []
         strategy_data = self.data_manager.get_data()
         enhanced_analysis_enabled = strategy_data.get('enhanced_analysis_enabled', True)
+        hybrid_strategy_enabled = strategy_data.get('hybrid_strategy_enabled', False)
         
         print("🔍 매도 후보 검토 시작...")
         
@@ -128,39 +139,85 @@ class SellExecutor:
                 print(f"   ❌ {ticker}: 데이터 검증 실패 - 매도 스킵")
                 continue
             
-            # 🔧 2. 손실 제한 체크 (우선순위 최고)
+            # 🔧 2. 손실 제한 체크 (최우선)
             stop_loss_sell, current_price, loss_rate = self.check_stop_loss(ticker, holdings[ticker])
             if stop_loss_sell:
                 should_sell = True
                 sell_reason = f"손실제한 (손실률: {loss_rate*100:.1f}%)"
                 print(f"   🛑 {ticker}: 손실 제한 매도 - 손실률 {loss_rate*100:.1f}%")
             
-            # 🔧 3. 뉴스 예측 기반 매도 신호 체크 (하이브리드 전략)
-            elif self._check_news_sell_signal(ticker, holding_days):
-                should_sell = True
-                sell_reason = f"뉴스 하락 예측"
-                print(f"   📉 {ticker}: 뉴스 기반 매도 신호")
-            
-            # 4. 기본 3일 룰 (손실 제한과 뉴스 신호가 아닌 경우만)
-            elif holding_days >= 3:
-                should_sell = True
-                sell_reason = f"보유기간 ({holding_days}일)"
-                print(f"   → {ticker}: 3일 이상 보유로 매도 검토")
-                
-                # 종합적인 홀드 판단 (3일차에만)
-                if holding_days == 3 and enhanced_analysis_enabled and loss_rate > -0.02:  # 2% 이상 손실이 아닌 경우만
-                    hold_score = self._calculate_hold_score(ticker, loss_rate)
+            # 🔧 3. 전략별 목표 기간 체크 (손실제한이 아닌 경우만)
+            elif hybrid_strategy_enabled:
+                # 하이브리드 전략인 경우
+                purchase_info = self.data_manager.get_purchase_info(ticker)
+                if purchase_info and purchase_info.get('is_hybrid'):
+                    # 뉴스 기반 매도 체크
+                    if self._check_news_sell_signal(ticker, holding_days):
+                        should_sell = True
+                        sell_reason = "뉴스 하락 예측"
+                        print(f"   📉 {ticker}: 뉴스 기반 매도 신호")
+                    else:
+                        # 리셋 횟수 확인
+                        reset_count = purchase_info.get('reset_count', 0)
+                        max_resets = strategy_data.get('pyramiding_max_resets', 2)  # 설정에서 가져오기
+                        
+                        # news_signal에서 holding_days 가져오기 (백테스트 엔진과 동일)
+                        news_signal = purchase_info.get('news_signal', {})
+                        planned_holding_days = news_signal.get('holding_days', 5)  # 기본값 5일
+                        
+                        if holding_days >= planned_holding_days:
+                            if reset_count >= max_resets:
+                                should_sell = True
+                                sell_reason = f"최대 리셋 횟수({max_resets}회) 도달"
+                                print(f"   → {ticker}: 최대 리셋 횟수 도달로 매도")
+                            else:
+                                should_sell = True
+                                sell_reason = f"뉴스 전략 목표 기간({planned_holding_days}일) 달성"
+                                print(f"   → {ticker}: 뉴스 전략 목표 기간 달성으로 매도")
+                else:
+                    # 하이브리드 전략이지만 뉴스 정보 없는 경우 기본 3일 룰
+                    if holding_days >= 3:
+                        should_sell = True
+                        sell_reason = f"기본 보유기간(3일) 달성"
+                        print(f"   → {ticker}: 3일 이상 보유로 매도 검토")
+                        
+                        # 종합적인 홀드 판단 (3일차에만)
+                        if holding_days == 3 and enhanced_analysis_enabled and loss_rate > -0.02:
+                            hold_score = self._calculate_hold_score(ticker, loss_rate)
+                            
+                            if hold_score >= 0.75:
+                                should_sell = False
+                                sell_reason = ""
+                                print(f"   → {ticker}: 종합 홀드 신호로 1일 연장 (점수: {hold_score:.3f})")
+            else:
+                # 기본 전략인 경우 (3일 룰)
+                if holding_days >= 3:
+                    should_sell = True
+                    sell_reason = f"기본 보유기간(3일) 달성"
+                    print(f"   → {ticker}: 3일 이상 보유로 매도 검토")
                     
-                    if hold_score >= 0.75:
-                        should_sell = False
-                        sell_reason = ""
-                        print(f"   → {ticker}: 종합 홀드 신호로 1일 연장 (점수: {hold_score:.3f})")
+                    # 종합적인 홀드 판단 (3일차에만)
+                    if holding_days == 3 and enhanced_analysis_enabled and loss_rate > -0.02:
+                        hold_score = self._calculate_hold_score(ticker, loss_rate)
+                        
+                        if hold_score >= 0.75:
+                            should_sell = False
+                            sell_reason = ""
+                            print(f"   → {ticker}: 종합 홀드 신호로 1일 연장 (점수: {hold_score:.3f})")
             
-            # 5. 안전장치: 5일 이상은 무조건 매도
-            if holding_days >= 5:
-                should_sell = True
-                sell_reason = f"5일 안전룰"
-                print(f"   → {ticker}: 5일 안전룰 적용")
+            # 4. 최대 보유기간 체크 (전략별 차별화)
+            if not should_sell:  # 아직 매도 결정이 안 된 경우만
+                # 하이브리드 전략이고 뉴스 정보가 있는 경우 10일, 아니면 5일
+                purchase_info = self.data_manager.get_purchase_info(ticker)
+                is_news_based = (hybrid_strategy_enabled and purchase_info and 
+                               purchase_info.get('is_hybrid'))
+                
+                max_holding_days = 10 if is_news_based else 5
+                
+                if holding_days >= max_holding_days:
+                    should_sell = True
+                    sell_reason = f"최대 보유기간({max_holding_days}일) 도달"
+                    print(f"   → {ticker}: 최대 보유기간 도달로 매도")
             
             if should_sell:
                 tickers_to_sell.append({
@@ -282,6 +339,7 @@ class SellExecutor:
                 
                 # 보유 기간 초기화
                 self.data_manager.reset_holding_period(ticker)
+                print(f"   📅 {ticker} 보유 기간 초기화 완료")
                 
             except Exception as e:
                 print(f"❌ {ticker} 매도 처리 오류: {e}")
@@ -355,7 +413,7 @@ class BuyExecutor:
                  hybrid_strategy_enabled: bool = False,
                  news_weight: float = 0.3,
                  technical_weight: float = 0.7,
-                 min_combined_score: float = 0.6,
+                 min_combined_score: float = 0.7,
                  debug_news: bool = True,
                  **kwargs):
         self.data_fetcher = get_data_fetcher()
@@ -417,7 +475,7 @@ class BuyExecutor:
         return buy_results
     
     def _select_buy_candidates(self, current_holdings: Dict[str, int]) -> List[Dict[str, Any]]:
-        """매수 후보 종목 선정 (하이브리드 전략 지원)"""
+        """매수 후보 종목 선정 (하이브리드 전략 + 피라미딩 지원)"""
         # 종목 선정 (백테스트 엔진 로직 적용)
         final_tickers = self.stock_selector.select_stocks_for_buy()
         
@@ -427,18 +485,31 @@ class BuyExecutor:
         
         print(f"📊 기술적 분석 선정: {len(final_tickers)}개 종목")
         
-        # 현재 보유중인 종목은 매수 후보에서 제외
-        current_holdings_set = set(current_holdings.keys())
-        technical_candidates = [t for t in final_tickers if t not in current_holdings_set]
+        # 피라미딩 전략: 보유 종목도 재평가 대상에 포함
+        strategy_data = self.data_manager.get_data()
+        pyramiding_enabled = strategy_data.get('pyramiding_enabled', False)
         
-        if not technical_candidates:
-            print("📊 이미 보유 중인 종목을 제외하면 매수 대상이 없습니다.")
-            return []
+        if pyramiding_enabled:
+            print("🔄 피라미딩 전략 활성화 - 보유 종목도 평가")
+            technical_candidates = final_tickers  # 모든 종목 포함
+            
+            # 보유 종목 표시
+            for ticker in technical_candidates:
+                if ticker in current_holdings:
+                    print(f"   → {ticker}: 보유 중 (피라미딩 후보)")
+        else:
+            # 현재 보유중인 종목은 매수 후보에서 제외
+            current_holdings_set = set(current_holdings.keys())
+            technical_candidates = [t for t in final_tickers if t not in current_holdings_set]
+            
+            if not technical_candidates:
+                print("📊 이미 보유 중인 종목을 제외하면 매수 대상이 없습니다.")
+                return []
         
         # 하이브리드 전략 적용
         if self.hybrid_strategy_enabled:
             print("\n📰 하이브리드 전략: 뉴스 감정 분석 추가...")
-            enhanced_candidates = self._apply_hybrid_strategy(technical_candidates)
+            enhanced_candidates = self._apply_hybrid_strategy(technical_candidates, current_holdings)
             
             # 슬랙 알림: 하이브리드 전략 선정 완료
             if enhanced_candidates:
@@ -462,10 +533,17 @@ class BuyExecutor:
                 selected_tickers=technical_candidates
             )
             
-            # 딕셔너리 형태로 변환
-            return [{'ticker': t} for t in technical_candidates]
+            # 딕셔너리 형태로 변환 (보유 여부 포함)
+            candidates = []
+            for ticker in technical_candidates:
+                candidates.append({
+                    'ticker': ticker,
+                    'is_holding': ticker in current_holdings
+                })
+            
+            return candidates
     
-    def _apply_hybrid_strategy(self, technical_candidates: List[str]) -> List[Dict[str, Any]]:
+    def _apply_hybrid_strategy(self, technical_candidates: List[str], current_holdings: Dict[str, int]) -> List[Dict[str, Any]]:
         """하이브리드 전략 적용: 기술적 분석 + 뉴스 감정 분석"""
         from datetime import datetime
         from pykrx import stock
@@ -473,22 +551,29 @@ class BuyExecutor:
         enhanced_candidates = []
         current_date = datetime.now().strftime('%Y-%m-%d')
         
+        strategy_data = self.data_manager.get_data()
+        pyramiding_enabled = strategy_data.get('pyramiding_enabled', False)
+        
         for ticker in technical_candidates:
             try:
+                # 보유 여부 확인
+                is_holding = ticker in current_holdings
+                
                 # 회사명 조회
                 company_name = stock.get_market_ticker_name(ticker)
                 if not company_name:
                     company_name = ticker
                 
-                print(f"\n🔍 {ticker} ({company_name}) 뉴스 분석 중...")
+                print(f"\n🔍 {ticker} ({company_name}) 뉴스 분석 중..." + 
+                      (" [보유중]" if is_holding else ""))
                 
                 # 뉴스 수집 및 분석
                 news_list = self.news_analyzer.fetch_ticker_news(ticker, company_name, current_date)
                 
-                # AI 점수 가져오기 (기술적 분석에서의 점수)
-                strategy_data = self.data_manager.get_data()
-                ai_predictions = strategy_data.get('ai_predictions', {})
-                technical_score = ai_predictions.get(ticker, {}).get('score', 0.7)
+                # 기술적 분석 점수 가져오기 (실시간 계산)
+                from ..analysis.technical import get_technical_score
+                technical_score = get_technical_score(ticker)
+                print(f"   📊 기술적 점수 실시간 계산: {technical_score:.3f}")
                 
                 if news_list:
                     print(f"   📰 {len(news_list)}개 뉴스 수집")
@@ -519,8 +604,18 @@ class BuyExecutor:
                     print(f"   📊 종합 점수: {combined_score*100:.1f}% "
                           f"(기술적: {technical_score*100:.1f}%, 뉴스 5일: {news_score*100:.1f}%)")
                     
+                    # 피라미딩 최소 점수 적용 (보유 종목은 더 높은 기준)
+                    if is_holding and pyramiding_enabled:
+                        min_score = max(self.min_combined_score, 0.75)  # 보유 종목은 75% 이상
+                        print(f"   🔄 피라미딩 기준: {min_score*100:.1f}%")
+                    else:
+                        min_score = self.min_combined_score
+                    
+                    # 뉴스 감정이 부정적인 경우 매수 차단
+                    if news_sentiment == '부정':
+                        print(f"   ❌ 뉴스 감정이 부정적이므로 매수하지 않음 (감정: {news_sentiment}, 5일 예측: {news_score*100:.1f}%)")
                     # 최소 점수 기준 충족 확인
-                    if combined_score >= self.min_combined_score:
+                    elif combined_score >= min_score:
                         enhanced_candidates.append({
                             'ticker': ticker,
                             'company_name': company_name,
@@ -528,16 +623,20 @@ class BuyExecutor:
                             'news_score': news_score,
                             'news_sentiment': news_sentiment,
                             'combined_score': combined_score,
-                            'news_analysis': news_analysis
+                            'news_analysis': news_analysis,
+                            'is_holding': is_holding
                         })
                     else:
-                        print(f"   ❌ 종합 점수 {combined_score*100:.1f}% < {self.min_combined_score*100:.1f}% (기준 미달)")
+                        print(f"   ❌ 종합 점수 {combined_score*100:.1f}% < {min_score*100:.1f}% (기준 미달)")
                 else:
                     print(f"   ⚠️ 뉴스 없음 - 기술적 점수만 사용")
                     # 뉴스가 없는 경우 기술적 점수만으로 평가
                     combined_score = technical_score
                     
-                    if combined_score >= self.min_combined_score:
+                    # 피라미딩 시 더 높은 기준 적용
+                    min_score = 0.75 if (is_holding and pyramiding_enabled) else self.min_combined_score
+                    
+                    if combined_score >= min_score:
                         enhanced_candidates.append({
                             'ticker': ticker,
                             'company_name': company_name,
@@ -545,7 +644,8 @@ class BuyExecutor:
                             'news_score': 0.5,  # 중립값
                             'news_sentiment': '중립',
                             'combined_score': combined_score,
-                            'news_analysis': None
+                            'news_analysis': None,
+                            'is_holding': is_holding
                         })
                         
             except Exception as e:
@@ -553,14 +653,17 @@ class BuyExecutor:
                 # 오류 시 기술적 점수만 사용
                 combined_score = technical_score
                 
-                if combined_score >= self.min_combined_score:
+                min_score = 0.75 if (is_holding and pyramiding_enabled) else self.min_combined_score
+                
+                if combined_score >= min_score:
                     enhanced_candidates.append({
                         'ticker': ticker,
                         'technical_score': technical_score,
                         'news_score': 0.5,
                         'news_sentiment': '중립',
                         'combined_score': combined_score,
-                        'news_analysis': None
+                        'news_analysis': None,
+                        'is_holding': is_holding
                     })
         
         # 종합 점수 기준으로 정렬
@@ -568,7 +671,8 @@ class BuyExecutor:
         
         print(f"\n📊 하이브리드 전략 최종 선정: {len(enhanced_candidates)}개 종목")
         for i, cand in enumerate(enhanced_candidates[:5]):
-            print(f"   {i+1}. {cand['ticker']}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
+            holding_status = " [보유중]" if cand.get('is_holding') else ""
+            print(f"   {i+1}. {cand['ticker']}{holding_status}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
                   f"(기술적 {cand['technical_score']*100:.1f}%, "
                   f"뉴스 {cand.get('news_score', 0.5)*100:.1f}%)")
         
@@ -630,11 +734,48 @@ class BuyExecutor:
         
         for candidate in validated_candidates[:available_slots]:
             try:
-                # 티커 추출
+                # 티커 추출 및 보유 여부 확인
                 ticker = candidate['ticker'] if isinstance(candidate, dict) else candidate
+                is_holding = candidate.get('is_holding', False) if isinstance(candidate, dict) else False
+                
+                # 피라미딩 체크
+                strategy_data = self.data_manager.get_data()
+                pyramiding_enabled = strategy_data.get('pyramiding_enabled', False)
+                
+                if is_holding and pyramiding_enabled:
+                    # 보유 종목의 현재 포지션 확인
+                    current_quantity = current_holdings.get(ticker, 0)
+                    purchase_info = self.data_manager.get_purchase_info(ticker)
+                    if purchase_info:
+                        current_avg_price = purchase_info.get('buy_price', 0)
+                        current_position_value = current_quantity * current_avg_price
+                        
+                        # 최대 포지션 크기 체크 (전체 자산의 30%)
+                        max_position_ratio = strategy_data.get('pyramiding_max_position', 0.3)
+                        max_position_value = (current_balance + total_invested) * max_position_ratio
+                        
+                        if current_position_value >= max_position_value:
+                            print(f"   ⚠️ {ticker}: 최대 포지션 도달 ({current_position_value:,.0f}원 / {max_position_value:,.0f}원)")
+                            continue
+                        
+                        print(f"   🔄 {ticker} 피라미딩 매수 검토:")
+                        print(f"      현재 보유: {current_quantity:,}주 @ {current_avg_price:,.0f}원")
+                        print(f"      현재 포지션: {current_position_value:,.0f}원")
+                        print(f"      최대 포지션: {max_position_value:,.0f}원 (전체 자산의 {max_position_ratio*100:.0f}%)")
+                        
+                        # 리셋 횟수 확인
+                        reset_count = purchase_info.get('reset_count', 0)
+                        max_resets = strategy_data.get('pyramiding_max_resets', 2)
+                        print(f"      리셋 횟수: {reset_count}/{max_resets}회")
                 
                 # AI 점수 및 투자 금액 결정
                 investment_info = self._determine_investment_amount(ticker, strategy_data, candidate)
+                
+                # 피라미딩인 경우 투자 금액 조정 (설정에서 비율 가져오기)
+                if is_holding and pyramiding_enabled:
+                    pyramiding_ratio = strategy_data.get('pyramiding_investment_ratio', 0.5)
+                    investment_info['amount'] = int(investment_info['amount'] * pyramiding_ratio)
+                    print(f"   🔄 피라미딩 투자금액: {investment_info['amount']:,}원 ({pyramiding_ratio*100:.0f}% 적용)")
                 
                 # 투자 가능 금액 확인
                 remaining_balance = current_balance - total_invested - 2_000_000  # 200만원 안전자금
@@ -720,15 +861,66 @@ class BuyExecutor:
                     confidence_stats[level]['count'] += 1
                     confidence_stats[level]['amount'] += actual_investment
                     
-                    # 매수 정보 저장
-                    purchase_info = {
-                        'buy_price': current_price,
-                        'quantity': actual_quantity,
-                        'investment': actual_investment,
-                        'buy_date': datetime.now().isoformat(),
-                        'ai_score': investment_info['ai_score'],
-                        'confidence_level': investment_info['confidence_level']
-                    }
+                    # 매수 정보 저장 (피라미딩 고려)
+                    if is_holding and pyramiding_enabled:
+                        # 기존 매수 정보 업데이트
+                        existing_info = self.data_manager.get_purchase_info(ticker)
+                        if existing_info:
+                            # 평균 단가 계산
+                            existing_quantity = existing_info.get('quantity', 0)
+                            existing_price = existing_info.get('buy_price', 0)
+
+                            # 새로운 매수 수량과 현재 가격
+                            total_quantity = existing_quantity + actual_quantity  # 총 수량
+                            new_avg_price = ((existing_quantity * existing_price) + (
+                                        actual_quantity * current_price)) / total_quantity  # 새로운 평균 단가 계산
+
+                            print(f"   📥 {ticker} 피라미딩 매수: {actual_quantity:,}주 @ {current_price:,}원")
+                            print(f"      총 보유: {existing_quantity + actual_quantity:,}주, 평균단가: {new_avg_price:,.0f}원")
+                            
+                            purchase_info = {
+                                'buy_price': new_avg_price,
+                                'quantity': existing_quantity + actual_quantity,
+                                'investment': existing_info.get('investment', 0) + actual_investment,
+                                'buy_date': existing_info.get('buy_date'),  # 최초 매수일 유지
+                                'last_buy_date': datetime.now().isoformat(),  # 최근 매수일
+                                'ai_score': investment_info['ai_score'],
+                                'confidence_level': investment_info['confidence_level'],
+                                'is_pyramiding': True,
+                                'pyramiding_count': existing_info.get('pyramiding_count', 0) + 1,
+                                'reset_count': existing_info.get('reset_count', 0)  # 리셋 횟수 유지
+                            }
+                            
+                            # 보유 기간 리셋 여부 (점수가 80% 이상일 때)
+                            reset_threshold = strategy_data.get('pyramiding_reset_threshold', 0.80)
+                            reset_holding = investment_info['ai_score'] >= reset_threshold
+                            
+                            if reset_holding:
+                                # 현재 보유 기간 확인
+                                old_holding_days = self.data_manager.get_holding_period(ticker)
+                                print(f"   🔄 높은 점수({investment_info['ai_score']*100:.1f}%)로 보유기간 리셋")
+                                print(f"      🔄 {ticker} 보유기간 리셋 (현재 보유일: {old_holding_days}일 → 1일)")
+                                
+                                # 리셋 정보 업데이트
+                                purchase_info['reset_count'] = purchase_info.get('reset_count', 0) + 1
+                                purchase_info['reset_date'] = datetime.now().isoformat()
+                                
+                                # 보유 기간 리셋 (1일로 설정)
+                                self.data_manager.reset_holding_period(ticker)
+                                self.data_manager.set_holding_period(ticker, 1)
+                            else:
+                                print(f"   📊 점수({investment_info['ai_score']*100:.1f}%)가 리셋 기준({reset_threshold*100:.0f}%) 미달")
+                    else:
+                        # 신규 매수
+                        purchase_info = {
+                            'buy_price': current_price,
+                            'quantity': actual_quantity,
+                            'investment': actual_investment,
+                            'buy_date': datetime.now().isoformat(),
+                            'ai_score': investment_info['ai_score'],
+                            'confidence_level': investment_info['confidence_level'],
+                            'reset_count': 0  # 리셋 횟수 초기화
+                        }
                     
                     # 하이브리드 전략 정보 추가
                     if investment_info.get('is_hybrid'):
@@ -740,7 +932,17 @@ class BuyExecutor:
                             # 시간별 예측값 추가 저장
                             'news_prob_1': candidate.get('news_analysis', {}).get('prob_1') if isinstance(candidate, dict) else None,
                             'news_prob_5': candidate.get('news_analysis', {}).get('prob_5') if isinstance(candidate, dict) else None,
-                            'news_prob_10': candidate.get('news_analysis', {}).get('prob_10') if isinstance(candidate, dict) else None
+                            'news_prob_10': candidate.get('news_analysis', {}).get('prob_10') if isinstance(candidate, dict) else None,
+                            # news_signal 정보 저장 (백테스트 엔진과 동일)
+                            'news_signal': {
+                                'holding_days': candidate.get('news_analysis', {}).get('optimal_holding_days', 5) if isinstance(candidate, dict) else 5,  # 최적화된 값 사용
+                                'predictions': {
+                                    '1d': candidate.get('news_analysis', {}).get('prob_1', 0.5),
+                                    '5d': candidate.get('news_analysis', {}).get('prob_5', 0.5),
+                                    '10d': candidate.get('news_analysis', {}).get('prob_10', 0.5),
+                                    '20d': candidate.get('news_analysis', {}).get('prob_20', 0.5)
+                                } if isinstance(candidate, dict) else {}
+                            }
                         })
                     
                     self.data_manager.set_purchase_info(ticker, purchase_info)
@@ -792,11 +994,6 @@ class BuyExecutor:
                 investment_amount = 300_000      
                 confidence_level = "저신뢰"
             
-            # 뉴스 감정이 부정적인 경우 추가 감소
-            if candidate.get('news_sentiment') == '부정':
-                investment_amount = int(investment_amount * 0.7)
-                confidence_level += " (뉴스 부정)"
-            
             return {
                 'amount': investment_amount,
                 'ai_score': score,
@@ -807,8 +1004,9 @@ class BuyExecutor:
                 'news_sentiment': candidate.get('news_sentiment', '중립')
             }
         else:
-            # 기존 방식: AI 점수만 사용
-            ai_score = strategy_data.get('ai_predictions', {}).get(ticker, {}).get('score', 0.5)
+            # 기존 방식: 기술적 분석 점수 사용 (실시간 계산)
+            from ..analysis.technical import get_technical_score
+            ai_score = get_technical_score(ticker)
             
             # 강화된 AI 신뢰도 기반 투자 금액 계산 (백테스트 엔진과 일관성 맞춤)
             if ai_score >= 0.80:           # 최고신뢰: 80만원

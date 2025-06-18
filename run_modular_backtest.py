@@ -61,7 +61,7 @@ def run_simple_backtest():
     
     try:
         # 백테스트 실행 (기술적 분석만 사용)
-        results = engine.run_backtest(start_str, end_str, ai_enabled=False)
+        results = engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
         
         # 결과 저장
         filename = engine.save_results("simple_modular_backtest.json")
@@ -133,7 +133,7 @@ def run_custom_backtest():
     
     try:
         # 백테스트 실행
-        results = engine.run_backtest(start_str, end_str, ai_enabled=False)
+        results = engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
         
         # 결과 저장
         filename = engine.save_results("custom_modular_backtest.json")
@@ -202,7 +202,7 @@ def run_period_comparison():
         end_str = end_date.strftime('%Y-%m-%d')
         
         try:
-            period_results = engine.run_backtest(start_str, end_str, ai_enabled=False)
+            period_results = engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
             results[period_name] = period_results
             print(f"✅ {period_name} 완료: 수익률 {period_results['total_return']*100:+.2f}%")
         except Exception as e:
@@ -285,7 +285,7 @@ def interactive_backtest():
         start_str = start_date.strftime('%Y-%m-%d')
         end_str = end_date.strftime('%Y-%m-%d')
         
-        results = engine.run_backtest(start_str, end_str, ai_enabled=False)
+        results = engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
         
         # 결과 저장
         filename = engine.save_results("interactive_backtest.json")

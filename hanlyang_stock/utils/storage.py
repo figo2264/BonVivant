@@ -10,66 +10,61 @@ from typing import Dict, Any, Optional
 
 
 class StrategyDataManager:
-    """전략 데이터 관리 클래스"""
+    """전략 데이터 관리 클래스 - 실시간 계산 전환"""
     
-    def __init__(self, data_file='technical_strategy_data.json'):
+    def __init__(self, data_file='strategy_data.json'):
         self.data_file = data_file
         self.strategy_data = self._load_strategy_data()
     
     def _load_strategy_data(self) -> Dict[str, Any]:
-        """전략 데이터 로드 (호환성 유지)"""
-        # 1. 최신 technical_strategy_data.json 시도
+        """전략 데이터 로드 (technical_analysis 제외)"""
+        # strategy_data.json 로드 (technical_strategy_data.json 사용 안 함)
         try:
-            with open('technical_strategy_data.json', 'r') as f:
+            with open(self.data_file, 'r') as f:
                 data = json.load(f)
-                print("✅ technical_strategy_data.json 로드 완료")
+                print(f"✅ {self.data_file} 로드 완료")
+                
+                # technical_analysis가 있으면 제거 (실시간 계산으로 전환)
+                if 'technical_analysis' in data:
+                    del data['technical_analysis']
+                    print("   🔄 기술적 분석 데이터 제거 (실시간 계산 전환)")
+                
                 return data
         except FileNotFoundError:
-            print("⚠️ technical_strategy_data.json 없음, 이전 파일 확인 중...")
+            print(f"⚠️ {self.data_file} 없음, 새로 생성")
         except Exception as e:
-            print(f"❌ technical_strategy_data.json 로드 오류: {e}")
+            print(f"❌ {self.data_file} 로드 오류: {e}")
         
-        # 2. 기존 ai_strategy_data.json과 호환성 유지
-        try:
-            with open('ai_strategy_data.json', 'r') as f:
-                old_data = json.load(f)
-                print("✅ ai_strategy_data.json에서 마이그레이션")
-                return {
-                    'holding_period': old_data.get('holding_period', {}),
-                    'technical_analysis': old_data.get('ai_predictions', {}),
-                    'enhanced_analysis_enabled': old_data.get('ai_enabled', True),
-                    'performance_log': old_data.get('performance_log', [])
-                }
-        except FileNotFoundError:
-            print("⚠️ ai_strategy_data.json 없음, legacy 파일 확인 중...")
-        except Exception as e:
-            print(f"❌ ai_strategy_data.json 로드 오류: {e}")
-        
-        # 3. legacy strategy_data.json과 호환성 유지
-        try:
-            with open('strategy_data.json', 'r') as f:
-                old_data = json.load(f)
-                print("✅ legacy strategy_data.json에서 마이그레이션")
-                return {
-                    'holding_period': old_data.get('holding_period', {}),
-                    'technical_analysis': {},
-                    'enhanced_analysis_enabled': True,
-                    'performance_log': []
-                }
-        except FileNotFoundError:
-            print("⚠️ legacy strategy_data.json 없음")
-        except Exception as e:
-            print(f"❌ legacy strategy_data.json 로드 오류: {e}")
-        
-        # 4. 기본값 반환
+        # 기본값 반환
         print("📝 새 전략 데이터 생성")
         return {
             'holding_period': {},
-            'technical_analysis': {},
             'enhanced_analysis_enabled': True,
             'performance_log': [],
-            'ai_predictions': {},
-            'purchase_info': {}
+            'purchase_info': {},
+            # 전략 설정값들
+            'stop_loss_enabled': True,
+            'hybrid_strategy_enabled': False,
+            'pyramiding_enabled': False,
+            'min_market_cap': 2_000_000_000_000,  # 2천억
+            'enhanced_min_trade_amount': 300_000_000,  # 3억
+            'max_selections': 3,
+            'pyramiding_max_position': 0.3,
+            'pyramiding_investment_ratio': 0.5,
+            'pyramiding_max_resets': 2,
+            'pyramiding_reset_threshold': 0.80,
+            'news_weight': 0.5,
+            'technical_weight': 0.5,
+            'min_combined_score': 0.7,
+            'debug_news': True,
+            # 백테스트 파라미터
+            'backtest_params': {
+                'min_close_days': 7,
+                'ma_period': 20,
+                'min_trade_amount': 300_000_000,
+                'min_technical_score': 0.7,
+                'max_positions': 5
+            }
         }
     
     def get_data(self) -> Dict[str, Any]:
@@ -130,6 +125,10 @@ class StrategyDataManager:
         """전략 데이터 저장"""
         if filename is None:
             filename = self.data_file
+        
+        # technical_analysis가 있으면 제거 (실시간 계산으로 전환)
+        if 'technical_analysis' in self.strategy_data:
+            del self.strategy_data['technical_analysis']
         
         # 직렬화 가능한 형태로 변환
         serializable_data = self._convert_to_serializable(self.strategy_data)
