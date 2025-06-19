@@ -83,7 +83,7 @@ def run_custom_backtest():
     
     # 커스텀 설정 생성
     custom_config = create_custom_config(
-        initial_capital=20_000_000,     # 2000만원으로 증가
+        initial_capital=10_000_000,     # 2000만원으로 증가
         max_positions=7,                # 7개 종목까지
         stop_loss_rate=-0.04           # -4% 손실제한
     )

@@ -78,13 +78,13 @@ def main():
         # 7. 기본 품질 필터 설정 (1단계 다층적 필터링)
         if 'quality_filter_enabled' not in strategy_data:
             strategy_data['quality_filter_enabled'] = True
-            strategy_data['min_market_cap'] = 2_000_000_000_000  # 최소 시가총액 2천억 (균형잡힌 기준)
-            strategy_data['enhanced_min_trade_amount'] = 300_000_000  # 최소 거래대금 3억 (최적화 결과 반영)
+            strategy_data['min_market_cap'] = 100_000_000_000  # 최소 시가총액 1000억 (백테스트와 동일)
+            strategy_data['enhanced_min_trade_amount'] = 30_000_000  # 최소 거래대금 0.3억 (백테스트와 동일)
             print("✅ 기본 품질 필터 활성화 (1단계 다층적 필터링)")
             print(f"   💎 최소 시가총액: {strategy_data['min_market_cap']/1_000_000_000:.0f}억원")
-            print(f"   💰 최소 거래대금: {strategy_data['enhanced_min_trade_amount']/1_000_000_000:.0f}억원")
+            print(f"   💰 최소 거래대금: {strategy_data['enhanced_min_trade_amount']/100_000_000:.1f}억원")
             print(f"   🚫 거래정지/관리종목 자동 제외")
-            print(f"   📊 예상 종목 풀: 약 200-250개 (적절한 선택 폭)")
+            print(f"   📊 예상 종목 풀: 약 500-700개 (백테스트와 동일한 선택 폭)")
         
         # 8. 최대 선정 종목 수 설정
         if 'max_selections' not in strategy_data:
@@ -150,8 +150,8 @@ def main():
             print(f"      - 부정적 뉴스 차단: {'활성화' if strategy_data.get('block_negative_news', True) else '비활성화'}")
         print(f"   💎 품질 필터: {'활성화' if strategy_data.get('quality_filter_enabled') else '비활성화'}")
         if strategy_data.get('quality_filter_enabled'):
-            print(f"      - 최소 시가총액: {strategy_data.get('min_market_cap', 500_000_000_000)/1_000_000_000:.0f}억원")
-            print(f"      - 최소 거래대금: {strategy_data.get('enhanced_min_trade_amount', 2_000_000_000)/1_000_000_000:.0f}억원")
+            print(f"      - 최소 시가총액: {strategy_data.get('min_market_cap', 100_000_000_000)/1_000_000_000:.0f}억원")
+            print(f"      - 최소 거래대금: {strategy_data.get('enhanced_min_trade_amount', 30_000_000)/100_000_000:.1f}억원")
         print(f"   📈 최대 선정 종목: {strategy_data.get('max_selections', 3)}개")
         print(f"   🔄 피라미딩 전략: {'활성화' if strategy_data.get('pyramiding_enabled') else '비활성화'}")
         if strategy_data.get('pyramiding_enabled'):
@@ -222,7 +222,7 @@ def main():
                     'hybrid_strategy_enabled': strategy_data.get('hybrid_strategy_enabled', True),
                     'news_weight': strategy_data.get('news_weight', 0.5),
                     'technical_weight': strategy_data.get('technical_weight', 0.5),
-                    'min_combined_score': strategy_data.get('min_combined_score', 0.6),
+                    'min_combined_score': strategy_data.get('min_combined_score', 0.7),
                     'debug_news': strategy_data.get('debug_news', True)
                 }
 

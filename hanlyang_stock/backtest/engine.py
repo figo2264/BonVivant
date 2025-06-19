@@ -224,8 +224,16 @@ class BacktestEngine:
                     # 회사명 조회
                     company_name = self.news_selector._get_company_name(ticker)
                     
-                    # 기술적 점수 재계산 (간단히 현재 기술적 점수 사용)
-                    technical_score = holding.get('additional_info', {}).get('technical_score', 0.7)
+                    # 보유 기간과 진입 가격 정보
+                    holding_days = self.portfolio.holding_period.get(ticker, 0)
+                    entry_price = holding.get('buy_price', None)
+                    
+                    # 기술적 점수 재계산 (보유 기간과 진입 가격 고려)
+                    from ..analysis.technical import get_technical_analyzer
+                    analyzer = get_technical_analyzer()
+                    technical_score = analyzer.get_technical_score(ticker, holding_days, entry_price)
+                    
+                    print(f"   → {ticker}: 기술점수 재계산 {technical_score*100:.1f}% (보유 {holding_days}일)")
                     
                     # 뉴스 분석
                     from ..analysis.news_sentiment import get_news_analyzer
@@ -244,8 +252,13 @@ class BacktestEngine:
                         if news_sentiment == '부정':
                             continue
                         
-                        # 종합 점수 계산
-                        combined_score = technical_score * 0.5 + news_score * 0.5
+                        # 종합 점수 계산 (기술적 점수 50% + 뉴스 점수 50%)
+                        technical_weight = 0.5
+                        news_weight = 0.5
+                        combined_score = (
+                            technical_score * technical_weight + 
+                            news_score * news_weight
+                        )
                         
                         # 피라미딩 후보로 추가
                         if combined_score >= 0.75:  # 피라미딩 최소 점수
@@ -256,7 +269,9 @@ class BacktestEngine:
                                 'news_score': news_score,
                                 'news_sentiment': news_sentiment,
                                 'combined_score': combined_score,
+                                'normalized_score': combined_score,  # 정규화된 점수 추가
                                 'is_holding': True,
+                                'holding_days': holding_days,
                                 'news_signal': {
                                     'ticker': ticker,
                                     'company_name': company_name,
@@ -279,7 +294,7 @@ class BacktestEngine:
             return {'bought_count': 0, 'total_invested': 0}
         
         # 점수 기준으로 정렬
-        candidates.sort(key=lambda x: x.get('combined_score', x.get('technical_score', 0)), reverse=True)
+        candidates.sort(key=lambda x: x.get('normalized_score', x.get('combined_score', x.get('technical_score', 0))), reverse=True)
         
         # 매수 실행
         return self._execute_buy_orders(candidates, available_slots, current_date)
@@ -300,11 +315,32 @@ class BacktestEngine:
                 print("📊 기술적 분석에서 선정된 종목이 없습니다.")
                 return []
             
-            # 데이터 검증
+            # 보유 종목 정보 가져오기 (기술점수 재계산용)
+            current_holdings = self.portfolio.get_current_holdings()
+            
+            # 데이터 검증 및 기술점수 재계산
             validated_candidates = []
             for candidate in entry_candidates:
                 ticker = candidate['ticker']
                 if self.data_validator.validate_ticker_data(ticker, current_date):
+                    # 보유 종목인 경우 기술점수 재계산
+                    if ticker in current_holdings:
+                        holding_info = current_holdings[ticker]
+                        holding_days = self.portfolio.holding_period.get(ticker, 0)
+                        entry_price = holding_info.get('buy_price', None)
+                        
+                        # 보유 기간과 진입 가격을 고려한 점수 계산
+                        from ..analysis.technical import get_technical_analyzer
+                        analyzer = get_technical_analyzer()
+                        technical_score = analyzer.get_technical_score(ticker, holding_days, entry_price)
+                        
+                        # candidate 정보 업데이트
+                        candidate['technical_score'] = technical_score
+                        candidate['is_holding'] = True
+                        candidate['holding_days'] = holding_days
+                        
+                        print(f"   📊 {ticker}: 보유 중 - 기술점수 재계산 {technical_score*100:.1f}% (보유 {holding_days}일)")
+                    
                     validated_candidates.append(candidate)
                 else:
                     print(f"   ❌ {ticker}: 데이터 검증 실패 - 매수 후보에서 제외")
@@ -357,6 +393,8 @@ class BacktestEngine:
                                 candidate['technical_score'] * technical_weight + 
                                 candidate['news_score'] * news_weight
                             )
+                            # 정규화된 점수 추가
+                            candidate['normalized_score'] = candidate['combined_score']
                             
                             print(f"      ✅ 뉴스 감정: {candidate['news_sentiment']}, "
                                   f"신뢰도: {candidate['news_score']*100:.1f}%")
@@ -381,6 +419,7 @@ class BacktestEngine:
                             candidate['news_score'] = 0.5  # 중립값
                             candidate['news_sentiment'] = '중립'
                             candidate['combined_score'] = candidate['technical_score']
+                            candidate['normalized_score'] = candidate['technical_score']  # 정규화된 점수
                         
                         enhanced_candidates.append(candidate)
                         
@@ -390,13 +429,15 @@ class BacktestEngine:
                         candidate['news_score'] = 0.5
                         candidate['news_sentiment'] = '중립'
                         candidate['combined_score'] = candidate['technical_score']
+                        candidate['normalized_score'] = candidate['technical_score']  # 정규화된 점수
                         enhanced_candidates.append(candidate)
                 
                 # 종합 점수 기준으로 정렬
-                enhanced_candidates.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+                enhanced_candidates.sort(key=lambda x: x.get('normalized_score', x.get('combined_score', 0)), reverse=True)
                 
                 # 최소 기준 필터링 (종합 점수 0.7 이상만)
-                final_candidates = [c for c in enhanced_candidates if c.get('combined_score', 0) >= 0.7]
+                final_candidates = [c for c in enhanced_candidates 
+                                  if c.get('normalized_score', c.get('combined_score', 0)) >= 0.7]
                 
                 if not final_candidates and enhanced_candidates:
                     # 기준에 맞는 종목이 없으면 상위 1개만 선택
@@ -404,7 +445,12 @@ class BacktestEngine:
                 
                 print(f"\n📊 최종 선정: {len(final_candidates)}개 종목 (종합 점수 0.7 이상)")
                 for i, cand in enumerate(final_candidates[:5]):
-                    print(f"   {i+1}. {cand['ticker']}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
+                    # 정규화된 점수 사용
+                    display_score = cand.get('normalized_score', cand.get('combined_score', 0))
+                    if display_score > 1.0:  # combined_score가 거래대금 기반인 경우
+                        display_score = cand.get('technical_score', 0)
+                    
+                    print(f"   {i+1}. {cand['ticker']}: 종합 {display_score*100:.1f}% "
                           f"(기술적 {cand['technical_score']*100:.1f}%, "
                           f"뉴스 {cand.get('news_score', 0.5)*100:.1f}%)")
                 
@@ -472,13 +518,33 @@ class BacktestEngine:
                     print(f"   ⚠️ {ticker}: 최대 포지션 도달 ({current_position_value:,.0f}원 / {max_position_value:,.0f}원)")
                     continue
                 
-                # 피라미딩 최소 점수 체크 (75% 이상)
-                min_pyramiding_score = 0.75
-                score = candidate.get('combined_score', candidate.get('technical_score', 0))
+                # 피라미딩 최소 점수 체크 (80% 이상으로 상향)
+                min_pyramiding_score = 0.80  # 기존 0.75에서 0.80으로 상향
+                # normalized_score가 있으면 사용, 없으면 combined_score 또는 technical_score 사용
+                score = candidate.get('normalized_score', 
+                       candidate.get('combined_score', candidate.get('technical_score', 0)))
+                
+                # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
+                if score > 1.0:
+                    score = candidate.get('technical_score', 0)
                 
                 if score < min_pyramiding_score:
                     print(f"   {ticker}: 보유 중 - 피라미딩 점수 미달 ({score*100:.1f}% < {min_pyramiding_score*100}%)")
                     continue
+                
+                # 피라미딩 횟수 제한 확인
+                pyramiding_count = holding.get('additional_info', {}).get('pyramiding_count', 0)
+                if pyramiding_count >= 1:
+                    print(f"   ⚠️ {ticker}: 피라미딩 횟수 초과 (최대 1회)")
+                    continue
+                
+                # 손실 중 피라미딩 금지
+                buy_price = holding.get('buy_price', 0)
+                if buy_price > 0:
+                    profit_rate = (current_price - buy_price) / buy_price
+                    if profit_rate < -0.02:  # 2% 이상 손실
+                        print(f"   ⚠️ {ticker}: 손실 중으로 피라미딩 취소 (손실률: {profit_rate*100:.1f}%)")
+                        continue
                 
                 print(f"   🔄 {ticker}: 피라미딩 매수 검토 (점수: {score*100:.1f}%)")
                 
@@ -518,11 +584,20 @@ class BacktestEngine:
                 'volume_signal': candidate.get('volume_signal', '정상')
             }
             
+            # 피라미딩인 경우 횟수 추적
+            if is_holding:
+                holding = current_holdings[ticker]
+                current_pyramiding_count = holding.get('additional_info', {}).get('pyramiding_count', 0)
+                additional_info['pyramiding_count'] = current_pyramiding_count + 1
+            else:
+                additional_info['pyramiding_count'] = 0
+            
             # 뉴스 전략인 경우 뉴스 정보 추가
             if self.use_news_strategy:
                 additional_info['news_score'] = candidate.get('news_score', 0.5)
                 additional_info['news_sentiment'] = candidate.get('news_sentiment', '중립')
                 additional_info['combined_score'] = candidate.get('combined_score', candidate.get('technical_score', 0.5))
+                additional_info['normalized_score'] = candidate.get('normalized_score', candidate.get('technical_score', 0.5))
                 
                 # 뉴스 신호 정보 추가
                 if 'news_signal' in candidate:
@@ -540,7 +615,12 @@ class BacktestEngine:
                 # 상세 매수 정보 출력
                 action = "피라미딩" if is_holding else "신규"
                 if self.use_news_strategy:
-                    print(f"✅ {ticker} {action} 매수 완료 - 종합점수: {candidate.get('combined_score', 0)*100:.1f}% "
+                    # 정규화된 점수 사용
+                    display_score = candidate.get('normalized_score', candidate.get('combined_score', 0))
+                    if display_score > 1.0:  # combined_score가 거래대금 기반인 경우
+                        display_score = candidate.get('technical_score', 0)
+                    
+                    print(f"✅ {ticker} {action} 매수 완료 - 종합점수: {display_score*100:.1f}% "
                           f"(기술적: {candidate.get('technical_score', 0)*100:.1f}%, "
                           f"뉴스: {candidate.get('news_score', 0)*100:.1f}%)")
                 else:
@@ -554,8 +634,12 @@ class BacktestEngine:
         """종합 점수 기반 투자 금액 결정"""
         # 뉴스 전략 사용 시 종합 점수 사용, 아니면 기술적 점수만 사용
         if self.use_news_strategy and 'combined_score' in candidate:
-            score = candidate.get('combined_score', 0.5)
+            score = candidate.get('normalized_score', candidate.get('combined_score', 0.5))
         else:
+            score = candidate.get('technical_score', 0.5)
+        
+        # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
+        if score > 1.0:
             score = candidate.get('technical_score', 0.5)
         
         # 점수 기반 투자 금액 조정

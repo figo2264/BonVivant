@@ -16,18 +16,21 @@ class TechnicalAnalyzer:
     def __init__(self):
         self.data_fetcher = get_data_fetcher()
     
-    def get_technical_score(self, ticker: str) -> float:
+    def get_technical_score(self, ticker: str, holding_days: int = 0, 
+                          entry_price: Optional[float] = None) -> float:
         """
-        규칙 기반 기술적 분석 점수 계산 (backtest_engine과 완전 동일)
+        개선된 기술적 분석 점수 계산 - 다각도 평가 및 동적 조정
         
         Args:
             ticker: 종목 코드
+            holding_days: 현재 보유 일수 (0이면 미보유)
+            entry_price: 매수 가격 (보유 중인 경우)
             
         Returns:
             float: 기술적 분석 점수 (0.0 ~ 1.0)
         """
         try:
-            # 현재 날짜까지의 데이터만 사용 (Look-ahead bias 방지)
+            # 데이터 조회
             data = self.data_fetcher.get_past_data_enhanced(ticker, n=50)
             if data.empty or len(data) < 30:
                 return 0.5
@@ -37,53 +40,215 @@ class TechnicalAnalyzer:
             latest = data.iloc[-1]
             
             # NaN 체크
-            if pd.isna(latest.get('rsi_14', np.nan)) or pd.isna(latest.get('price_ma_ratio_20', np.nan)):
+            if pd.isna(latest.get('rsi_14', np.nan)):
                 return 0.5
             
-            score = 0.5  # 기본점수
+            # 가중치 설정
+            weights = {
+                'trend': 0.30,        # 추세 (30%)
+                'momentum': 0.25,     # 모멘텀 (25%)
+                'oversold': 0.20,     # 과매도 (20%)
+                'volume': 0.15,       # 거래량 (15%)
+                'volatility': 0.10    # 변동성 (10%)
+            }
             
-            # 1. RSI 기반 과매도 판단
-            rsi = latest['rsi_14']
-            if rsi < 25:
-                score += 0.25  # 강한 과매도
-            elif rsi < 35:
-                score += 0.15  # 과매도
-            elif rsi > 75:
-                score -= 0.2   # 과매수
+            # 각 구성요소 점수 계산
+            components = {
+                'trend': self._calculate_trend_score(data, latest),
+                'momentum': self._calculate_momentum_score(data, latest),
+                'oversold': self._calculate_oversold_score(data, latest),
+                'volume': self._calculate_volume_score(latest),
+                'volatility': self._calculate_volatility_score(latest)
+            }
             
-            # 2. 이동평균 대비 위치
-            ma_signals = 0
-            for period in [5, 10, 20]:
-                if latest[f'price_ma_ratio_{period}'] < 0.98:
-                    ma_signals += 1
+            # 가중 평균 계산
+            base_score = sum(components[key] * weights[key] for key in components)
             
-            if ma_signals >= 2:
-                score += 0.2
+            # 보유 중인 종목에 대한 조정
+            if holding_days > 0:
+                adjustment = self._apply_holding_adjustment(
+                    base_score, holding_days, latest['close'], entry_price
+                )
+                final_score = base_score * adjustment
+            else:
+                final_score = base_score
             
-            # 3. 단기 반등 시그널
-            if latest['return_1d'] > 0.01 and latest.get('return_3d', 0) < -0.02:
-                score += 0.15
+            # 디버그 출력 (중요한 경우만)
+            if holding_days > 0 or final_score > 0.85 or final_score < 0.3:
+                print(f"   📊 {ticker} 기술적 점수 상세:")
+                print(f"      추세: {components['trend']:.2f}, "
+                      f"모멘텀: {components['momentum']:.2f}, "
+                      f"과매도: {components['oversold']:.2f}")
+                if holding_days > 0:
+                    print(f"      보유일수: {holding_days}일, 조정계수: {adjustment:.2f}")
+                print(f"      최종점수: {final_score:.3f}")
             
-            # 4. 거래량 급증
-            volume_ratio = latest.get('volume_ratio_5d', 1.0)
-            if volume_ratio > 1.8:
-                score += 0.1
-            elif volume_ratio > 1.3:
-                score += 0.05
-            
-            # 5. 변동성 조정
-            if latest.get('volatility_10d', 0) > 0.05:
-                score -= 0.1
-            
-            # 6. 볼린저 밴드 하단 근처
-            if latest.get('bb_position', 0) < -0.8:
-                score += 0.15
-            
-            return max(0.0, min(1.0, score))
+            return max(0.0, min(1.0, final_score))
             
         except Exception as e:
             print(f"기술적 점수 계산 오류 ({ticker}): {e}")
             return 0.5
+    
+    def _calculate_trend_score(self, data: pd.DataFrame, latest: pd.Series) -> float:
+        """추세 점수 계산 (0-1)"""
+        # 이평선 가격 대비 위치
+        ma5_ratio = latest.get('price_ma_ratio_5', 1.0)
+        ma20_ratio = latest.get('price_ma_ratio_20', 1.0)
+        
+        # 이평선 배열 점수
+        if ma5_ratio > 1.02 and ma20_ratio > 1.01:
+            arrangement_score = 0.9
+        elif ma5_ratio > 1.0 and ma20_ratio > 1.0:
+            arrangement_score = 0.7
+        elif ma5_ratio > 1.0:
+            arrangement_score = 0.5
+        elif ma5_ratio < 0.95 and ma20_ratio < 0.95:
+            arrangement_score = 0.2
+        else:
+            arrangement_score = 0.4
+        
+        # 추세 강도 (최근 20일 수익률)
+        return_20d = latest.get('return_20d', 0)
+        if return_20d > 0.1:
+            strength_score = 0.9
+        elif return_20d > 0.05:
+            strength_score = 0.7
+        elif return_20d > 0:
+            strength_score = 0.5
+        elif return_20d > -0.05:
+            strength_score = 0.3
+        else:
+            strength_score = 0.1
+        
+        return arrangement_score * 0.7 + strength_score * 0.3
+    
+    def _calculate_momentum_score(self, data: pd.DataFrame, latest: pd.Series) -> float:
+        """모멘텀 점수 계산 (0-1)"""
+        # 단기 수익률 모멘텀
+        return_1d = latest.get('return_1d', 0)
+        return_3d = latest.get('return_3d', 0)
+        
+        if return_1d > 0.03 and return_3d > 0.05:
+            momentum_score = 0.9
+        elif return_1d > 0.01 and return_3d > 0:
+            momentum_score = 0.7
+        elif return_1d > 0 and return_3d < -0.03:
+            momentum_score = 0.8  # 반등 시작
+        elif return_1d < -0.02:
+            momentum_score = 0.3
+        else:
+            momentum_score = 0.5
+        
+        # RSI 모멘텀
+        rsi = latest.get('rsi_14', 50)
+        rsi_change = 0
+        
+        if len(data) >= 2:
+            prev_rsi = data.iloc[-2].get('rsi_14', 50)
+            rsi_change = rsi - prev_rsi
+        
+        if rsi < 30 and rsi_change > 0:
+            rsi_score = 0.9
+        elif rsi > 70 and rsi_change < 0:
+            rsi_score = 0.2
+        else:
+            rsi_score = 0.5 + min(0.3, max(-0.3, rsi_change / 100))
+        
+        return momentum_score * 0.6 + rsi_score * 0.4
+    
+    def _calculate_oversold_score(self, data: pd.DataFrame, latest: pd.Series) -> float:
+        """과매도 점수 계산 - 지속 기간 고려"""
+        rsi = latest.get('rsi_14', 50)
+        
+        # 과매도 지속 일수 계산
+        oversold_days = 0
+        for i in range(min(10, len(data))):
+            if data.iloc[-(i+1)].get('rsi_14', 50) < 30:
+                oversold_days += 1
+            else:
+                break
+        
+        # RSI 기반 점수
+        if oversold_days > 5:
+            rsi_score = 0.2  # 장기 과매도 위험
+        elif rsi < 25 and oversold_days <= 2:
+            rsi_score = 0.8  # 단기 급락 기회
+        elif rsi < 30 and oversold_days <= 3:
+            rsi_score = 0.6
+        elif rsi < 40:
+            rsi_score = 0.5
+        elif rsi > 70:
+            rsi_score = 0.3
+        else:
+            rsi_score = 0.5
+        
+        # 볼린저 밴드 위치
+        bb_position = latest.get('bb_position', 0)
+        
+        if bb_position < -1.0 and oversold_days <= 2:
+            bb_score = 0.7
+        elif bb_position < -0.5:
+            bb_score = 0.6
+        elif bb_position > 1.0:
+            bb_score = 0.3
+        else:
+            bb_score = 0.5
+        
+        return rsi_score * 0.7 + bb_score * 0.3
+    
+    def _calculate_volume_score(self, latest: pd.Series) -> float:
+        """거래량 점수 계산"""
+        volume_ratio = latest.get('volume_ratio_5d', 1.0)
+        price_change = latest.get('return_1d', 0)
+        
+        if volume_ratio > 2.0 and price_change < -0.02:
+            return 0.8  # 하락 중 대량 거래
+        elif volume_ratio > 1.5 and price_change > 0.01:
+            return 0.8  # 상승 중 거래량 증가
+        elif volume_ratio > 1.5:
+            return 0.7
+        elif volume_ratio < 0.5:
+            return 0.3
+        else:
+            return 0.5
+    
+    def _calculate_volatility_score(self, latest: pd.Series) -> float:
+        """변동성 점수 계산"""
+        volatility = latest.get('volatility_10d', 0.03)
+        
+        if volatility < 0.02:
+            return 0.9
+        elif volatility < 0.03:
+            return 0.7
+        elif volatility < 0.05:
+            return 0.5
+        elif volatility < 0.08:
+            return 0.3
+        else:
+            return 0.1
+    
+    def _apply_holding_adjustment(self, base_score: float, holding_days: int,
+                                 current_price: float, entry_price: Optional[float]) -> float:
+        """보유 중인 종목에 대한 점수 조정"""
+        # 기본 시간 감쇠
+        time_decay = max(0.7, 1.0 - holding_days * 0.05)
+        
+        # 손익 상황 반영
+        if entry_price and entry_price > 0:
+            profit_rate = (current_price - entry_price) / entry_price
+            
+            if profit_rate > 0.05:
+                profit_adjustment = 1.0
+            elif profit_rate > 0:
+                profit_adjustment = 0.9
+            elif profit_rate > -0.03:
+                profit_adjustment = 0.8
+            else:
+                profit_adjustment = 0.6
+        else:
+            profit_adjustment = 0.9
+        
+        return time_decay * profit_adjustment
 
     def get_technical_hold_signal(self, ticker: str, current_date=None) -> float:
         """
@@ -335,10 +500,10 @@ def get_technical_analyzer() -> TechnicalAnalyzer:
     return _technical_analyzer_instance
 
 # 편의 함수들
-def get_technical_score(ticker: str) -> float:
+def get_technical_score(ticker: str, holding_days: int = 0, entry_price: Optional[float] = None) -> float:
     """기술적 분석 점수 계산"""
     analyzer = get_technical_analyzer()
-    return analyzer.get_technical_score(ticker)
+    return analyzer.get_technical_score(ticker, holding_days, entry_price)
 
 def get_technical_hold_signal(ticker: str, current_date=None) -> float:
     """기술적 홀드 시그널 계산"""

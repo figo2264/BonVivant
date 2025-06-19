@@ -570,10 +570,23 @@ class BuyExecutor:
                 # 뉴스 수집 및 분석
                 news_list = self.news_analyzer.fetch_ticker_news(ticker, company_name, current_date)
                 
-                # 기술적 분석 점수 가져오기 (실시간 계산)
-                from ..analysis.technical import get_technical_score
-                technical_score = get_technical_score(ticker)
-                print(f"   📊 기술적 점수 실시간 계산: {technical_score:.3f}")
+                # 기술적 분석 점수 가져오기 (보유 기간과 진입 가격 고려)
+                from ..analysis.technical import get_technical_score, get_technical_analyzer
+                
+                # 보유 종목인 경우 보유 기간과 진입 가격 정보를 활용
+                if is_holding:
+                    purchase_info = self.data_manager.get_purchase_info(ticker)
+                    holding_days = self.data_manager.get_holding_period(ticker)
+                    entry_price = purchase_info.get('buy_price', None) if purchase_info else None
+                    
+                    # 보유 기간과 진입 가격을 고려한 점수 계산
+                    analyzer = get_technical_analyzer()
+                    technical_score = analyzer.get_technical_score(ticker, holding_days, entry_price)
+                    print(f"   📊 기술적 점수 계산 (보유 {holding_days}일): {technical_score:.3f}")
+                else:
+                    # 신규 매수인 경우 일반 점수 계산
+                    technical_score = get_technical_score(ticker)
+                    print(f"   📊 기술적 점수 실시간 계산: {technical_score:.3f}")
                 
                 if news_list:
                     print(f"   📰 {len(news_list)}개 뉴스 수집")
@@ -599,6 +612,7 @@ class BuyExecutor:
                         technical_score * self.technical_weight + 
                         news_score * self.news_weight
                     )
+                    normalized_score = combined_score  # 정규화된 점수 (0~1 사이)
                     
                     print(f"   ✅ 뉴스 감정: {news_sentiment}, 5일 예측: {news_score*100:.1f}%")
                     print(f"   📊 종합 점수: {combined_score*100:.1f}% "
@@ -623,6 +637,7 @@ class BuyExecutor:
                             'news_score': news_score,
                             'news_sentiment': news_sentiment,
                             'combined_score': combined_score,
+                            'normalized_score': normalized_score,  # 정규화된 점수 추가
                             'news_analysis': news_analysis,
                             'is_holding': is_holding
                         })
@@ -632,6 +647,7 @@ class BuyExecutor:
                     print(f"   ⚠️ 뉴스 없음 - 기술적 점수만 사용")
                     # 뉴스가 없는 경우 기술적 점수만으로 평가
                     combined_score = technical_score
+                    normalized_score = technical_score  # 정규화된 점수
                     
                     # 피라미딩 시 더 높은 기준 적용
                     min_score = 0.75 if (is_holding and pyramiding_enabled) else self.min_combined_score
@@ -644,6 +660,7 @@ class BuyExecutor:
                             'news_score': 0.5,  # 중립값
                             'news_sentiment': '중립',
                             'combined_score': combined_score,
+                            'normalized_score': normalized_score,  # 정규화된 점수 추가
                             'news_analysis': None,
                             'is_holding': is_holding
                         })
@@ -652,6 +669,7 @@ class BuyExecutor:
                 print(f"   ❌ 뉴스 분석 오류: {e}")
                 # 오류 시 기술적 점수만 사용
                 combined_score = technical_score
+                normalized_score = technical_score  # 정규화된 점수
                 
                 min_score = 0.75 if (is_holding and pyramiding_enabled) else self.min_combined_score
                 
@@ -662,17 +680,22 @@ class BuyExecutor:
                         'news_score': 0.5,
                         'news_sentiment': '중립',
                         'combined_score': combined_score,
+                        'normalized_score': normalized_score,  # 정규화된 점수 추가
                         'news_analysis': None,
                         'is_holding': is_holding
                     })
         
         # 종합 점수 기준으로 정렬
-        enhanced_candidates.sort(key=lambda x: x.get('combined_score', 0), reverse=True)
+        enhanced_candidates.sort(key=lambda x: x.get('normalized_score', x.get('combined_score', 0)), reverse=True)
         
         print(f"\n📊 하이브리드 전략 최종 선정: {len(enhanced_candidates)}개 종목")
         for i, cand in enumerate(enhanced_candidates[:5]):
             holding_status = " [보유중]" if cand.get('is_holding') else ""
-            print(f"   {i+1}. {cand['ticker']}{holding_status}: 종합 {cand.get('combined_score', 0)*100:.1f}% "
+            # 정규화된 점수 사용
+            display_score = cand.get('normalized_score', cand.get('combined_score', 0))
+            if display_score > 1.0:  # combined_score가 거래대금 기반인 경우
+                display_score = cand.get('technical_score', 0)
+            print(f"   {i+1}. {cand['ticker']}{holding_status}: 종합 {display_score*100:.1f}% "
                   f"(기술적 {cand['technical_score']*100:.1f}%, "
                   f"뉴스 {cand.get('news_score', 0.5)*100:.1f}%)")
         
@@ -978,7 +1001,12 @@ class BuyExecutor:
         """투자 금액 결정 (하이브리드 전략 지원)"""
         # 하이브리드 전략인 경우
         if self.hybrid_strategy_enabled and isinstance(candidate, dict) and 'combined_score' in candidate:
-            score = candidate['combined_score']
+            # normalized_score가 있으면 사용, 없으면 combined_score 사용
+            score = candidate.get('normalized_score', candidate.get('combined_score', 0))
+            
+            # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
+            if score > 1.0:
+                score = candidate.get('technical_score', 0.7)
             
             # 종합 점수 기반 투자 금액 계산
             if score >= 0.80:           # 최고신뢰: 80만원
@@ -1004,9 +1032,25 @@ class BuyExecutor:
                 'news_sentiment': candidate.get('news_sentiment', '중립')
             }
         else:
-            # 기존 방식: 기술적 분석 점수 사용 (실시간 계산)
-            from ..analysis.technical import get_technical_score
-            ai_score = get_technical_score(ticker)
+            # 기존 방식: 기술적 분석 점수 사용 (보유 기간 고려)
+            from ..analysis.technical import get_technical_score, get_technical_analyzer
+            
+            # 보유 종목인지 확인
+            current_holdings = self.data_fetcher.get_holding_stock()
+            is_holding = ticker in current_holdings
+            
+            if is_holding:
+                # 보유 종목인 경우 보유 기간과 진입 가격 고려
+                purchase_info = self.data_manager.get_purchase_info(ticker)
+                holding_days = self.data_manager.get_holding_period(ticker)
+                entry_price = purchase_info.get('buy_price', None) if purchase_info else None
+                
+                analyzer = get_technical_analyzer()
+                ai_score = analyzer.get_technical_score(ticker, holding_days, entry_price)
+                print(f"      📊 보유 종목 기술점수 (보유 {holding_days}일): {ai_score:.3f}")
+            else:
+                # 신규 매수인 경우
+                ai_score = get_technical_score(ticker)
             
             # 강화된 AI 신뢰도 기반 투자 금액 계산 (백테스트 엔진과 일관성 맞춤)
             if ai_score >= 0.80:           # 최고신뢰: 80만원

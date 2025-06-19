@@ -452,14 +452,21 @@ class StockSelector:
                 technical_score = get_technical_score(ticker)
                 
                 # 결합 점수: 기존 거래량 가중치 + 기술적 분석 보정
+                # 거래량 순위를 위한 값 (정렬용)
                 technical_multiplier = 0.5 + technical_score  # 0.5 ~ 1.5 배수
-                combined_score = row['trade_amount'] * technical_multiplier
+                combined_score_raw = row['trade_amount'] * technical_multiplier
+                
+                # 정규화된 점수 (0~1 사이, 표시용)
+                # 기술적 점수를 주로 사용하되, 거래량이 매우 높으면 약간의 보너스
+                volume_bonus = min(0.1, row['trade_amount'] / 10_000_000_000)  # 100억 거래대금당 0.01, 최대 0.1
+                normalized_score = min(1.0, technical_score + volume_bonus)
                 
                 enhanced_candidates.append({
                     'ticker': ticker,
                     'trade_amount': row['trade_amount'],
                     'technical_score': technical_score,
-                    'combined_score': combined_score,
+                    'combined_score': combined_score_raw,  # 정렬용 (거래량 가중치 포함)
+                    'normalized_score': normalized_score,  # 표시용 (0~1 사이)
                     'current_price': row['close']
                 })
             
