@@ -7,13 +7,9 @@
     <list default="true" id="481af4c9-239f-4fc7-8ff3-91922ba98bc7" name="변경" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/6-3.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/6-3.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_modular_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_modular_backtest.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_news_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_news_backtest.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/run_technical_optimization.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_technical_optimization.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/data_validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/data_validator.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

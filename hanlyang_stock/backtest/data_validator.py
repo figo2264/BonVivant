@@ -79,7 +79,7 @@ class DataValidator:
                 print(f"⚠️ {ticker}: 저가주 제외 ({current_price:,}원)")
                 return False
             
-            if current_price > 500_000:  # 50만원 초과 고가주
+            if current_price > 1_000_000:  # 100만원 초과 고가주
                 print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
                 return False
             
