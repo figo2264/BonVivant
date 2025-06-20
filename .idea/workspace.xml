@@ -6,10 +6,15 @@
   <component name="ChangeListManager">
     <list default="true" id="481af4c9-239f-4fc7-8ff3-91922ba98bc7" name="변경" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/6-3.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/6-3.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/news_sentiment.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/data_validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/data_validator.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_modular_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_modular_backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_news_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_news_backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_technical_optimization.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_technical_optimization.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -31,6 +36,7 @@
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
     &quot;Python.run_modular_backtest.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_bullish_candle_strategy.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;model-test__a&quot;,
     &quot;last_opened_file_path&quot;: &quot;/Users/seunghakim/projects/Hanlyang_Stock&quot;,
@@ -46,7 +52,7 @@
       <recent name="$PROJECT_DIR$" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.test_bullish_candle_strategy">
     <configuration name="run_modular_backtest" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="Hanlyang_Stock" />
       <option name="ENV_FILES" value="" />
@@ -70,8 +76,32 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <configuration name="test_bullish_candle_strategy" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="Hanlyang_Stock" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/test_bullish_candle_strategy.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
+        <item itemvalue="Python.test_bullish_candle_strategy" />
         <item itemvalue="Python.run_modular_backtest" />
       </list>
     </recent_temporary>
@@ -93,6 +123,11 @@
       <updated>1749993249202</updated>
       <workItem from="1749993250307" duration="70840000" />
       <workItem from="1750152535113" duration="28437000" />
+      <workItem from="1750391481595" duration="3034000" />
+      <workItem from="1750395808772" duration="3722000" />
+      <workItem from="1750400186464" duration="999000" />
+      <workItem from="1750401378185" duration="3632000" />
+      <workItem from="1750405891273" duration="2817000" />
     </task>
     <servers />
   </component>
@@ -101,5 +136,6 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/Hanlyang_Stock$run_modular_backtest.coverage" NAME="run_modular_backtest 커버리지 결과" MODIFIED="1749735637220" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Hanlyang_Stock$test_bullish_candle_strategy.coverage" NAME="test_bullish_candle_strategy 커버리지 결과" MODIFIED="1750390385719" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

@@ -7,36 +7,63 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional
+from hanlyang_stock.config.strategy_settings import get_strategy_config, StrategyConfig
 
 
 class StrategyDataManager:
     """전략 데이터 관리 클래스 - 실시간 계산 전환"""
     
-    def __init__(self, data_file='strategy_data.json'):
+    def __init__(self, data_file='strategy_data.json', use_config_file=True, preset='balanced'):
         self.data_file = data_file
+        self.use_config_file = use_config_file
+        self.preset = preset
         self.strategy_data = self._load_strategy_data()
     
     def _load_strategy_data(self) -> Dict[str, Any]:
         """전략 데이터 로드 (technical_analysis 제외)"""
-        # strategy_data.json 로드 (technical_strategy_data.json 사용 안 함)
+        # 설정 파일 사용 시 기본값 가져오기
+        if self.use_config_file:
+            config = get_strategy_config(self.preset)
+            base_data = config.to_dict()
+            print(f"✅ strategy_settings.py에서 '{self.preset}' 설정 로드")
+        else:
+            base_data = self._get_default_data()
+        
+        # strategy_data.json 로드 (런타임 데이터용)
         try:
             with open(self.data_file, 'r') as f:
-                data = json.load(f)
-                print(f"✅ {self.data_file} 로드 완료")
+                runtime_data = json.load(f)
+                print(f"✅ {self.data_file} 로드 완료 (런타임 데이터)")
                 
                 # technical_analysis가 있으면 제거 (실시간 계산으로 전환)
-                if 'technical_analysis' in data:
-                    del data['technical_analysis']
+                if 'technical_analysis' in runtime_data:
+                    del runtime_data['technical_analysis']
                     print("   🔄 기술적 분석 데이터 제거 (실시간 계산 전환)")
                 
-                return data
+                # 런타임 데이터로 설정값 업데이트 (holding_period, purchase_info 등)
+                # 설정값은 config 파일에서, 런타임 데이터는 JSON에서
+                for key in ['holding_period', 'performance_log', 'purchase_info']:
+                    if key in runtime_data:
+                        base_data[key] = runtime_data[key]
+                
+                return base_data
         except FileNotFoundError:
-            print(f"⚠️ {self.data_file} 없음, 새로 생성")
+            print(f"⚠️ {self.data_file} 없음, 설정 파일 기반으로 새로 생성")
         except Exception as e:
             print(f"❌ {self.data_file} 로드 오류: {e}")
         
-        # 기본값 반환
-        print("📝 새 전략 데이터 생성")
+        # 런타임 데이터 초기화
+        base_data.update({
+            'holding_period': {},
+            'performance_log': [],
+            'purchase_info': {}
+        })
+        
+        return base_data
+    
+    def _get_default_data(self) -> Dict[str, Any]:
+        """기본값 반환 (구버전 호환용)"""
+        print("📝 새 전략 데이터 생성 (레거시 모드)")
         return {
             'holding_period': {},
             'enhanced_analysis_enabled': True,
@@ -53,8 +80,8 @@ class StrategyDataManager:
             'pyramiding_investment_ratio': 0.5,
             'pyramiding_max_resets': 2,
             'pyramiding_reset_threshold': 0.80,
-            'news_weight': 0.5,
-            'technical_weight': 0.5,
+            'news_weight': 0.3,
+            'technical_weight': 0.7,
             'min_combined_score': 0.7,
             'debug_news': True,
             # 백테스트 파라미터
@@ -122,7 +149,7 @@ class StrategyDataManager:
             del self.strategy_data['purchase_info'][ticker]
     
     def save(self, filename: Optional[str] = None) -> None:
-        """전략 데이터 저장"""
+        """전략 데이터 저장 (런타임 데이터만)"""
         if filename is None:
             filename = self.data_file
         
@@ -130,15 +157,20 @@ class StrategyDataManager:
         if 'technical_analysis' in self.strategy_data:
             del self.strategy_data['technical_analysis']
         
+        # 런타임 데이터만 추출 (설정값 제외)
+        runtime_keys = ['holding_period', 'performance_log', 'purchase_info']
+        runtime_data = {k: v for k, v in self.strategy_data.items() if k in runtime_keys}
+        
         # 직렬화 가능한 형태로 변환
-        serializable_data = self._convert_to_serializable(self.strategy_data)
+        serializable_data = self._convert_to_serializable(runtime_data)
         
         try:
             with open(filename, 'w') as f:
                 json.dump(serializable_data, f, indent=2, ensure_ascii=False)
-            print(f"💾 전략 데이터 저장 완료: {filename}")
+            print(f"💾 런타임 데이터 저장 완료: {filename}")
+            print(f"   (설정값은 strategy_settings.py에서 관리)")
         except Exception as e:
-            print(f"❌ 전략 데이터 저장 오류: {e}")
+            print(f"❌ 런타임 데이터 저장 오류: {e}")
     
     def _convert_to_serializable(self, obj: Any) -> Any:
         """numpy 타입을 JSON 직렬화 가능한 타입으로 변환"""
@@ -161,11 +193,17 @@ class StrategyDataManager:
 # 전역 데이터 매니저 (싱글톤 패턴)
 _data_manager_instance = None
 
-def get_data_manager() -> StrategyDataManager:
-    """데이터 매니저 인스턴스 반환 (싱글톤)"""
+def get_data_manager(use_config_file: bool = True, preset: str = 'balanced') -> StrategyDataManager:
+    """
+    데이터 매니저 인스턴스 반환 (싱글톤)
+    
+    Args:
+        use_config_file: strategy_settings.py 사용 여부
+        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive')
+    """
     global _data_manager_instance
     if _data_manager_instance is None:
-        _data_manager_instance = StrategyDataManager()
+        _data_manager_instance = StrategyDataManager(use_config_file=use_config_file, preset=preset)
     return _data_manager_instance
 
 def load_strategy_data() -> Dict[str, Any]:

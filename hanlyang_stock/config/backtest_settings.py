@@ -13,7 +13,7 @@ class OptimizedParameters:
     min_close_days: int = 7              # 최저점 확인 기간
     ma_period: int = 20                  # 이동평균 기간
     min_trade_amount: float = 300_000_000  # 최소 거래대금 (3억원)
-    min_technical_score: float = 0.65    # 최소 기술적 점수
+    min_technical_score: float = 0.6     # 최소 기술적 점수 (0.65에서 0.6으로 하향)
     max_positions: int = 5               # 최대 보유 종목 수
     
     def to_dict(self) -> Dict[str, Any]:
@@ -43,7 +43,7 @@ class BacktestConfig:
     safety_cash_amount: float = 2_000_000    # 안전 자금 (200만원)
     
     # 기술적 분석 설정
-    min_technical_score: float = 0.65        # 최소 기술적 점수
+    min_technical_score: float = 0.6         # 최소 기술적 점수 (0.65에서 0.6으로 하향)
     enhanced_analysis: bool = True           # 강화된 기술적 분석 사용
     
     # 종목 선정 파라미터 (최적화 결과 반영)

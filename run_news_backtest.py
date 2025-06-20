@@ -138,7 +138,7 @@ def run_news_backtest(test_period_days: int = 10, debug: bool = False):
         print(f"⚠️ 백테스트 기간이 너무 짧습니다. 최소 10일로 설정합니다.")
         test_period_days = 10
     
-    print("📰 하이브리드 백테스트 실행 (기술적 분석 50% + 뉴스 감정 분석 50%)")
+    print("📰 하이브리드 백테스트 실행 (기술적 분석 70% + 뉴스 감정 분석 30%)")
     print("=" * 60)
     
     # 기본 설정으로 백테스트 엔진 생성
@@ -164,7 +164,7 @@ def run_news_backtest(test_period_days: int = 10, debug: bool = False):
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     
     # 테스트 기간 설정
@@ -255,7 +255,7 @@ def compare_strategies(test_period_days: int = 30):
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     print()
     

@@ -252,9 +252,9 @@ class BacktestEngine:
                         if news_sentiment == '부정':
                             continue
                         
-                        # 종합 점수 계산 (기술적 점수 50% + 뉴스 점수 50%)
-                        technical_weight = 0.5
-                        news_weight = 0.5
+                        # 종합 점수 계산 (기술적 점수 70% + 뉴스 점수 30%)
+                        technical_weight = 0.7
+                        news_weight = 0.3
                         combined_score = (
                             technical_score * technical_weight + 
                             news_score * news_weight
@@ -386,9 +386,9 @@ class BacktestEngine:
                                 print(f"      ❌ 뉴스 감정이 부정적이어서 매수 후보에서 제외")
                                 continue
                             
-                            # 종합 점수 계산 (기술적 점수 50% + 뉴스 점수 50%)
-                            technical_weight = 0.5
-                            news_weight = 0.5
+                            # 종합 점수 계산 (기술적 점수 70% + 뉴스 점수 30%)
+                            technical_weight = 0.7
+                            news_weight = 0.3
                             candidate['combined_score'] = (
                                 candidate['technical_score'] * technical_weight + 
                                 candidate['news_score'] * news_weight

@@ -9,6 +9,7 @@ from ..data.fetcher import get_data_fetcher
 from ..analysis.technical import get_technical_score, validate_ticker_data
 from ..utils.storage import get_data_manager
 import pandas as pd
+import numpy as np
 try:
     from pykrx import stock
 except ImportError:
@@ -45,7 +46,7 @@ class StockSelector:
             print("🔄 실시간 모드 활성화")
     
     def apply_market_cap_filter(self, tickers: List[str], current_date: str = None, 
-                               min_market_cap: int = 2_000_000_000_000) -> List[str]:
+                               min_market_cap: int = 200_000_000_000) -> List[str]:
         """
         시가총액 필터 적용
         
@@ -284,8 +285,8 @@ class StockSelector:
         strategy_data = self.data_manager.get_data()
         
         if min_trade_amount is None:
-            # 기본값: 10억원 (적절한 유동성 확보)
-            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', 1_000_000_000)
+            # 기본값: 3억원으로 수정 (기존 10억에서 하향)
+            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', 300_000_000)
         
         print(f"💰 강화된 유동성 필터 적용 (최소 거래대금: {min_trade_amount/1_000_000_000:.1f}억원)")
         
@@ -317,13 +318,191 @@ class StockSelector:
         
         # 2. 시가총액 필터
         strategy_data = self.data_manager.get_data()
-        min_market_cap = strategy_data.get('min_market_cap', 2_000_000_000_000)  # 기본 2천억
+        min_market_cap = strategy_data.get('min_market_cap', 200_000_000_000)  # 기본 2천억
         tickers = self.apply_market_cap_filter(tickers, current_date, min_market_cap)
         
         print(f"\n✅ [1단계] 기본 품질 필터 완료: {len(tickers)}개 종목 통과")
         print("-" * 60)
         
         return tickers
+    
+    def validate_bullish_candle(self, row) -> bool:
+        """
+        품질 높은 양봉 확인
+        
+        Args:
+            row: 당일 종목 데이터
+            
+        Returns:
+            bool: 품질 높은 양봉 여부
+        """
+        try:
+            # 1. 양봉 크기: 최소 1.5% 이상 상승 (기존 2%에서 완화)
+            candle_size = (row['close'] - row['open']) / row['open']
+            if candle_size < 0.015:  # 1.5%로 완화
+                return False
+            
+            # 2. 긴 아래꼬리 확인 (망치형 캔들)
+            if row['high'] > row['low']:  # 0으로 나누기 방지
+                lower_wick = (row['open'] - row['low']) / row['open']
+                upper_wick = (row['high'] - row['close']) / row['close']
+                
+                if lower_wick > upper_wick * 2:  # 아래꼬리가 위꼬리의 2배 이상
+                    return True
+            
+            # 3. 실체가 전체 캔들의 60% 이상
+            if row['high'] != row['low']:  # 0으로 나누기 방지
+                body_ratio = abs(row['close'] - row['open']) / (row['high'] - row['low'])
+                return body_ratio >= 0.6
+            
+            return True  # 기본적으로 통과
+            
+        except Exception as e:
+            print(f"⚠️ 양봉 검증 오류: {e}")
+            return False
+    
+    def check_volume_surge(self, market_data: pd.DataFrame, ticker: str) -> bool:
+        """
+        거래량 급증 여부 확인
+        
+        Args:
+            market_data: 전체 시장 데이터
+            ticker: 종목 코드
+            
+        Returns:
+            bool: 거래량 급증 여부
+        """
+        try:
+            ticker_data = market_data[market_data['ticker'] == ticker].sort_values('timestamp')
+            
+            if len(ticker_data) < 6:  # 5일 평균을 계산하기 위한 최소 데이터
+                return True  # 데이터 부족시 통과
+            
+            # 5일 평균 거래량
+            avg_volume_5d = ticker_data['volume'].tail(6).iloc[:-1].mean()
+            current_volume = ticker_data['volume'].iloc[-1]
+            
+            # 평균이 0이면 체크 불가
+            if avg_volume_5d == 0:
+                return True
+            
+            # 조건:
+            # 1. 당일 거래량이 5일 평균의 1.5배 이상
+            # 2. 거래대금도 함께 증가 (허수 거래 방지)
+            volume_ratio = current_volume / avg_volume_5d
+            
+            avg_trade_amount_5d = ticker_data['trade_amount'].tail(6).iloc[:-1].mean()
+            current_trade_amount = ticker_data['trade_amount'].iloc[-1]
+            
+            if avg_trade_amount_5d > 0:
+                trade_amount_ratio = current_trade_amount / avg_trade_amount_5d
+                return volume_ratio >= 1.5 and trade_amount_ratio >= 1.3
+            else:
+                return volume_ratio >= 1.5
+                
+        except Exception as e:
+            print(f"⚠️ 거래량 급증 확인 오류: {e}")
+            return True  # 오류시 통과
+    
+    def check_rsi_reversal(self, market_data: pd.DataFrame, ticker: str) -> bool:
+        """
+        RSI 반등 신호 확인
+        
+        Args:
+            market_data: 전체 시장 데이터
+            ticker: 종목 코드
+            
+        Returns:
+            bool: RSI 반등 신호 여부
+        """
+        try:
+            # RSI 계산을 위해 기술적 지표 추가
+            from ..data.preprocessor import create_technical_features
+            
+            ticker_data = market_data[market_data['ticker'] == ticker].sort_values('timestamp').copy()
+            
+            if len(ticker_data) < 14:  # RSI 계산에 필요한 최소 데이터
+                return True  # 데이터 부족시 통과
+            
+            # RSI 계산
+            ticker_data = create_technical_features(ticker_data)
+            
+            # 최근 3일간 RSI 추세
+            if 'rsi_14' not in ticker_data.columns:
+                print(f"⚠️ RSI 지표가 계산되지 않음: {ticker}")
+                return True  # RSI 계산 불가시 통과
+            
+            recent_rsi = ticker_data['rsi_14'].tail(3).values
+            
+            if len(recent_rsi) < 3 or pd.isna(recent_rsi).any():
+                return True  # RSI 계산 불가시 통과
+            
+            # 조건:
+            # 1. RSI가 30 근처에서 반등 (과매도 → 상승)
+            # 2. RSI가 상승 추세
+            
+            # RSI 30~40 구간에서 상승 중
+            if 30 <= recent_rsi[-1] <= 40:
+                return recent_rsi[-1] > recent_rsi[-2] > recent_rsi[-3]
+            
+            # RSI가 30 미만에서 반등
+            if recent_rsi[-2] < 30 and recent_rsi[-1] > recent_rsi[-2]:
+                return True
+            
+            # RSI가 너무 높으면 제외 (과매수)
+            if recent_rsi[-1] > 70:
+                return False
+            
+            return True  # 기본적으로 통과
+            
+        except Exception as e:
+            print(f"⚠️ RSI 반등 확인 오류: {e}")
+            return True  # 오류시 통과
+    
+    def check_near_support(self, row, market_data: pd.DataFrame, ticker: str) -> bool:
+        """
+        지지선 근처 여부 확인
+        
+        Args:
+            row: 당일 종목 데이터
+            market_data: 전체 시장 데이터
+            ticker: 종목 코드
+            
+        Returns:
+            bool: 지지선 근처 여부
+        """
+        try:
+            ticker_data = market_data[market_data['ticker'] == ticker].sort_values('timestamp')
+            
+            if len(ticker_data) < 20:
+                return True  # 데이터 부족시 통과
+            
+            # 최근 20일 저점들 추출
+            recent_lows = ticker_data['low'].tail(20).values
+            current_price = row['close']
+            
+            # 지지선 후보: 2번 이상 터치한 가격대 (1% 오차 허용)
+            support_levels = []
+            for i in range(len(recent_lows)):
+                count = sum(1 for low in recent_lows if abs(low - recent_lows[i])/recent_lows[i] < 0.01)
+                if count >= 2:
+                    support_levels.append(recent_lows[i])
+            
+            if not support_levels:
+                return True  # 지지선이 없으면 통과
+            
+            # 중복 제거
+            support_levels = list(set(support_levels))
+            
+            # 현재가가 가장 가까운 지지선의 3% 이내
+            nearest_support = min(support_levels, key=lambda x: abs(x - current_price))
+            distance_ratio = abs(current_price - nearest_support) / nearest_support
+            
+            return distance_ratio <= 0.03
+            
+        except Exception as e:
+            print(f"⚠️ 지지선 확인 오류: {e}")
+            return True  # 오류시 통과
     
     def enhanced_stock_selection(self, current_date=None) -> List[Dict[str, Any]]:
         """
@@ -363,7 +542,7 @@ class StockSelector:
                 print(f"   🔧 백테스트 파라미터 적용:")
                 print(f"      - 최저점 기간: {min_close_days}일")
                 print(f"      - 이평선 기간: {ma_period}일")
-                print(f"      - 최소 거래대금: {min_trade_amount/1_000_000_000:.1f}억")
+                print(f"      - 최소 거래대금: {min_trade_amount/1_000_000_000:.0f}억")
                 print(f"      - 최소 기술점수: {min_technical_score}")
             
             # 현재 날짜의 시장 데이터 조회 (백테스트 모드 고려)
@@ -404,16 +583,114 @@ class StockSelector:
                 print(f"⚠️ 당일 데이터 없음")
                 return []
             
-            # 파라미터화된 조건에 맞는 종목 찾기
+            # 파라미터화된 조건에 맞는 종목 찾기 + 양봉 조건 추가
             traditional_candidates = today_data[
                 (today_data[f'{min_close_days}d_min_close'] == today_data['close']) &
-                (today_data[f'{ma_period}d_ma'] > today_data['close'])
+                (today_data[f'{ma_period}d_ma'] > today_data['close']) &
+                (today_data['close'] > today_data['open'])  # 양봉 조건 추가 (반전 신호)
             ].copy()
             
-            print(f"📊 기술적 조건 후보: {len(traditional_candidates)}개")
+            # 추가 필터 적용 (v3 버전)
+            if 'min_candle_size' in backtest_params or 'max_rsi' in backtest_params:
+                print("   🔧 추가 필터 적용 (양봉 크기/RSI)")
+                
+                # 양봉 크기 필터
+                min_candle_size = backtest_params.get('min_candle_size', 0)
+                if min_candle_size > 0:
+                    # 양봉 크기 계산 (종가 - 시가) / 시가
+                    traditional_candidates['candle_size'] = (
+                        (traditional_candidates['close'] - traditional_candidates['open']) / 
+                        traditional_candidates['open']
+                    )
+                    before_count = len(traditional_candidates)
+                    traditional_candidates = traditional_candidates[
+                        traditional_candidates['candle_size'] >= min_candle_size
+                    ].copy()
+                    print(f"      - 양봉 크기 {min_candle_size*100:.0f}% 이상: {before_count} → {len(traditional_candidates)}개")
+                
+                # RSI 필터
+                max_rsi = backtest_params.get('max_rsi', 100)
+                if max_rsi < 100:
+                    # RSI 계산이 필요한 경우
+                    # 기술적 지표가 이미 계산되어 있다고 가정
+                    # create_technical_features를 통해 RSI 추가
+                    from ..data.preprocessor import create_technical_features
+                    
+                    # 각 종목별로 RSI 계산
+                    filtered_candidates = []
+                    for ticker in traditional_candidates['ticker'].unique():
+                        ticker_data = market_data[market_data['ticker'] == ticker].copy()
+                        if len(ticker_data) >= 14:  # RSI 계산에 필요한 최소 데이터
+                            ticker_data = create_technical_features(ticker_data)
+                            latest_rsi = ticker_data.iloc[-1].get('rsi_14', 50)
+                            
+                            if latest_rsi <= max_rsi:
+                                candidate_row = traditional_candidates[
+                                    traditional_candidates['ticker'] == ticker
+                                ]
+                                if not candidate_row.empty:
+                                    filtered_candidates.append(candidate_row.iloc[0])
+                                    print(f"      - {ticker}: RSI {latest_rsi:.1f} ✓")
+                    
+                    if filtered_candidates:
+                        traditional_candidates = pd.DataFrame(filtered_candidates)
+                        print(f"      - RSI {max_rsi} 이하: {len(traditional_candidates)}개 통과")
+                    else:
+                        traditional_candidates = pd.DataFrame()  # 빈 DataFrame
+            
+            print(f"📊 기술적 조건 후보 (양봉 필터 포함): {len(traditional_candidates)}개")
             
             if traditional_candidates.empty:
                 return []
+            
+            # 🔍 추세 강도 필터 적용 (설정에서 활성화된 경우)
+            strategy_data = self.data_manager.get_data()
+            trend_strength_filter_enabled = strategy_data.get('trend_strength_filter_enabled', True)
+            
+            if trend_strength_filter_enabled:
+                print("\n🔍 [추세 강도 필터] 적용 시작...")
+                print("   📋 필터 조건:")
+                print("      - 양봉 크기 1.5% 이상")
+                print("      - 거래량 5일 평균 대비 1.5배 이상")
+                print("      - RSI 반등 신호 (과매도 구간에서 상승)")
+                print("      - 지지선 근처 (3% 이내)")
+                
+                strong_candidates = []
+                
+                for _, row in traditional_candidates.iterrows():
+                    ticker = row['ticker']
+                    
+                    # 1. 양봉 품질 검증
+                    if not self.validate_bullish_candle(row):
+                        # print(f"   ❌ {ticker}: 양봉 품질 부족 (2% 미만 상승 또는 형태 불량)")
+                        continue
+                    
+                    # 2. 거래량 급증 확인
+                    if not self.check_volume_surge(market_data, ticker):
+                        # print(f"   ❌ {ticker}: 거래량 증가 부족 (5일 평균 대비 1.5배 미만)")
+                        continue
+                    
+                    # 3. RSI 반등 신호
+                    if not self.check_rsi_reversal(market_data, ticker):
+                        # print(f"   ❌ {ticker}: RSI 반등 신호 없음 (과매수 또는 하락 추세)")
+                        continue
+                    
+                    # 4. 지지선 근처 확인
+                    if not self.check_near_support(row, market_data, ticker):
+                        # print(f"   ❌ {ticker}: 지지선에서 멀음 (3% 초과)")
+                        continue
+                    
+                    print(f"   ✅ {ticker}: 모든 추세 강도 필터 통과")
+                    strong_candidates.append(row)
+                
+                if strong_candidates:
+                    traditional_candidates = pd.DataFrame(strong_candidates)
+                    print(f"\n📊 추세 강도 필터 통과: {len(traditional_candidates)}개 종목")
+                else:
+                    print(f"\n❌ 추세 강도 필터 통과 종목 없음")
+                    return []
+            else:
+                print("\n⚠️ 추세 강도 필터 비활성화됨 (설정에서 활성화 가능)")
             
             # 🎯 2단계: 기본 품질 필터 적용 (시가총액, 거래정지 등)
             candidate_tickers = traditional_candidates['ticker'].unique().tolist()
@@ -475,9 +752,17 @@ class StockSelector:
             
             # 기술적 점수가 기준 이상인 종목만 선정
             selected_candidates = []
+            print(f"\n🔍 기술적 점수 필터링 (최소 점수: {min_technical_score})")
             for candidate in enhanced_candidates[:10]:  # 상위 10개 확인
+                print(f"   - {candidate['ticker']}: 기술점수 {candidate['technical_score']:.3f}")
                 if candidate['technical_score'] >= min_technical_score and len(selected_candidates) < 5:  # 파라미터화된 기준
                     selected_candidates.append(candidate)
+                    print(f"     ✅ 선정됨")
+                else:
+                    if len(selected_candidates) >= 5:
+                        print(f"     ❌ 최대 선정 수 초과")
+                    else:
+                        print(f"     ❌ 점수 미달")
             
             print(f"🎯 기술적 분석 최종 선정: {len(selected_candidates)}개 종목")
             

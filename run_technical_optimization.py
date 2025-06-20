@@ -83,7 +83,7 @@ class TechnicalOptimizer:
             print(f"\n[{idx}/{total_combinations}] 테스트 중...")
             print(f"  - 최저점 기간: {min_close}일")
             print(f"  - 이평선 기간: {ma_period}일") 
-            print(f"  - 최소 거래대금: {trade_amount/1_000_000_000:.1f}억")
+            print(f"  - 최소 거래대금: {trade_amount/1_000_000_000:.0f}억")
             print(f"  - 최소 기술점수: {tech_score}")
             print(f"  - 최대 보유종목: {max_pos}개")
             
@@ -264,7 +264,7 @@ class TechnicalOptimizer:
         best = summary['best_parameters']
         print(f"  - 최저점 확인 기간: {best['min_close_days']}일")
         print(f"  - 이동평균 기간: {best['ma_period']}일")
-        print(f"  - 최소 거래대금: {best['min_trade_amount']/1_000_000_000:.1f}억원")
+        print(f"  - 최소 거래대금: {best['min_trade_amount']/1_000_000_000:.0f}억원")
         print(f"  - 최소 기술점수: {best['min_technical_score']}")
         print(f"  - 최대 보유종목: {best['max_positions']}개")
         

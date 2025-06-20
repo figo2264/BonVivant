@@ -43,7 +43,7 @@ def run_simple_backtest():
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     
     # 최근 10일간 백테스트 (테스트용)
@@ -111,7 +111,7 @@ def run_custom_backtest():
     print("\n📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     
     # 1개월간 백테스트
@@ -161,7 +161,7 @@ def run_period_comparison():
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.1f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     print()
     

@@ -452,12 +452,19 @@ class BuyExecutor:
         
         if not buy_candidates:
             print("📊 매수 대상 종목이 없습니다.")
-            return {'bought_count': 0, 'total_invested': 0}
+            # 매수 대상이 없어도 슬랙 알림 전송
+            buy_results = {'bought_count': 0, 'total_invested': 0}
+            self._send_buy_summary(buy_results, len(holdings))
+            return buy_results
         
         # 잔고 확인
         balance_info = self._check_balance()
         if not balance_info['success']:
-            return {'bought_count': 0, 'total_invested': 0, 'error': 'balance_check_failed'}
+            print("❌ 잔고 확인 실패로 매수를 진행할 수 없습니다.")
+            # 잔고 확인 실패 시에도 슬랙 알림 전송
+            buy_results = {'bought_count': 0, 'total_invested': 0, 'error': 'balance_check_failed'}
+            self._send_buy_summary(buy_results, len(holdings))
+            return buy_results
         
         # 매수 실행 (데이터 검증 강화)
         buy_results = self._execute_buys(buy_candidates, balance_info['balance'])
