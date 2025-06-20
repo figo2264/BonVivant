@@ -62,7 +62,7 @@ class StrategyDataManager:
                 'min_close_days': 7,
                 'ma_period': 20,
                 'min_trade_amount': 300_000_000,
-                'min_technical_score': 0.7,
+                'min_technical_score': 0.65,
                 'max_positions': 5
             }
         }

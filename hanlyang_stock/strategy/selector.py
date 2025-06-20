@@ -345,7 +345,7 @@ class StockSelector:
             min_close_days = technical_params.get('min_close_days', backtest_params.get('min_close_days', 7))  # 최적화: 7일
             ma_period = technical_params.get('ma_period', backtest_params.get('ma_period', 20))
             min_trade_amount = strategy_data.get('enhanced_min_trade_amount', backtest_params.get('min_trade_amount', 300_000_000))  # 최적화: 3억
-            min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', 0.7))  # 최적화: 0.7
+            min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', 0.65))  # 최적화: 0.7
             
             # 백테스트 모드일 때 날짜 설정
             if self.backtest_mode and current_date:

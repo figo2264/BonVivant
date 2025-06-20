@@ -3,8 +3,28 @@ Backtest configuration settings
 백테스트 설정 관리
 """
 
-from dataclasses import dataclass
-from typing import Dict, Any
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional
+
+
+@dataclass
+class OptimizedParameters:
+    """최적화된 백테스트 파라미터"""
+    min_close_days: int = 7              # 최저점 확인 기간
+    ma_period: int = 20                  # 이동평균 기간
+    min_trade_amount: float = 300_000_000  # 최소 거래대금 (3억원)
+    min_technical_score: float = 0.65    # 최소 기술적 점수
+    max_positions: int = 5               # 최대 보유 종목 수
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'min_close_days': self.min_close_days,
+            'ma_period': self.ma_period,
+            'min_trade_amount': self.min_trade_amount,
+            'min_technical_score': self.min_technical_score,
+            'max_positions': self.max_positions
+        }
 
 
 @dataclass
@@ -23,7 +43,7 @@ class BacktestConfig:
     safety_cash_amount: float = 2_000_000    # 안전 자금 (200만원)
     
     # 기술적 분석 설정
-    min_technical_score: float = 0.70        # 최소 기술적 점수 (최적화 결과: 0.7)
+    min_technical_score: float = 0.65        # 최소 기술적 점수
     enhanced_analysis: bool = True           # 강화된 기술적 분석 사용
     
     # 종목 선정 파라미터 (최적화 결과 반영)
@@ -34,6 +54,9 @@ class BacktestConfig:
     # 투자 금액 설정 (기술적 점수별)
     investment_amounts: Dict[str, float] = None
     
+    # 최적화된 파라미터 (선택적)
+    optimized_params: Optional[OptimizedParameters] = None
+    
     def __post_init__(self):
         if self.investment_amounts is None:
             self.investment_amounts = {
@@ -42,6 +65,16 @@ class BacktestConfig:
                 '중신뢰': 400_000,      # 40만원 (점수 0.65-0.7)
                 '저신뢰': 300_000       # 30만원 (점수 0.65 미만)
             }
+        
+        # 최적화된 파라미터가 없으면 기본값으로 생성
+        if self.optimized_params is None:
+            self.optimized_params = OptimizedParameters(
+                min_close_days=self.min_close_days,
+                ma_period=self.ma_period,
+                min_trade_amount=self.min_trade_amount,
+                min_technical_score=self.min_technical_score,
+                max_positions=self.max_positions
+            )
     
     def get_investment_amount(self, technical_score: float) -> tuple[float, str]:
         """
@@ -62,6 +95,16 @@ class BacktestConfig:
         else:
             return self.investment_amounts['저신뢰'], '저신뢰'
     
+    def get_optimal_params(self) -> Dict[str, Any]:
+        """최적화된 파라미터를 딕셔너리로 반환"""
+        return self.optimized_params.to_dict()
+    
+    def update_optimal_params(self, **kwargs) -> None:
+        """최적화 파라미터 업데이트"""
+        params_dict = self.optimized_params.to_dict()
+        params_dict.update(kwargs)
+        self.optimized_params = OptimizedParameters(**params_dict)
+    
     def to_dict(self) -> Dict[str, Any]:
         """설정을 딕셔너리로 변환"""
         return {
@@ -77,7 +120,8 @@ class BacktestConfig:
             'investment_amounts': self.investment_amounts,
             'min_close_days': self.min_close_days,
             'ma_period': self.ma_period,
-            'min_trade_amount': self.min_trade_amount
+            'min_trade_amount': self.min_trade_amount,
+            'optimized_params': self.optimized_params.to_dict() if self.optimized_params else None
         }
     
     @classmethod
@@ -92,6 +136,11 @@ class BacktestConfig:
             config_dict['min_technical_score'] = config_dict.pop('min_ai_confidence')
         if 'ai_lookback_days' in config_dict:
             config_dict.pop('ai_lookback_days')
+        
+        # optimized_params 처리
+        if 'optimized_params' in config_dict and config_dict['optimized_params']:
+            opt_params = config_dict.pop('optimized_params')
+            config_dict['optimized_params'] = OptimizedParameters(**opt_params)
             
         return cls(**config_dict)
 
@@ -113,7 +162,14 @@ CONSERVATIVE_CONFIG = BacktestConfig(
         '고신뢰': 500_000,
         '중신뢰': 400_000,
         '저신뢰': 300_000
-    }
+    },
+    optimized_params=OptimizedParameters(
+        min_close_days=7,
+        ma_period=20,
+        min_trade_amount=500_000_000,
+        min_technical_score=0.75,
+        max_positions=3
+    )
 )
 
 AGGRESSIVE_CONFIG = BacktestConfig(
@@ -132,11 +188,19 @@ AGGRESSIVE_CONFIG = BacktestConfig(
         '고신뢰': 1_000_000,
         '중신뢰': 800_000,
         '저신뢰': 600_000
-    }
+    },
+    optimized_params=OptimizedParameters(
+        min_close_days=7,
+        ma_period=20,
+        min_trade_amount=100_000_000,
+        min_technical_score=0.55,
+        max_positions=7
+    )
 )
 
 BALANCED_CONFIG = BacktestConfig(
     # 기본값 사용 (균형잡힌 설정)
+    optimized_params=OptimizedParameters()  # 기본 최적화 파라미터
 )
 
 # 설정 프리셋
@@ -177,6 +241,12 @@ def create_custom_config(**kwargs) -> BacktestConfig:
     # 기본 설정에서 시작
     base_config = BALANCED_CONFIG.to_dict()
     
+    # optimized_params 처리
+    if 'optimized_params' in kwargs:
+        opt_params = kwargs.pop('optimized_params')
+        if isinstance(opt_params, dict):
+            kwargs['optimized_params'] = OptimizedParameters(**opt_params)
+    
     # 커스텀 파라미터로 업데이트
     base_config.update(kwargs)
     
@@ -189,15 +259,22 @@ def create_custom_config(**kwargs) -> BacktestConfig:
     return BacktestConfig.from_dict(base_config)
 
 
+def get_default_optimal_params() -> Dict[str, Any]:
+    """기본 최적화 파라미터 반환"""
+    return OptimizedParameters().to_dict()
+
+
 # 사용 예시
 if __name__ == "__main__":
     # 기본 설정
     config = get_backtest_config('balanced')
     print("기본 설정:", config.to_dict())
+    print("최적화 파라미터:", config.get_optimal_params())
     
     # 보수적 설정
     conservative = get_backtest_config('conservative')
-    print("보수적 설정:", conservative.to_dict())
+    print("\n보수적 설정:", conservative.to_dict())
+    print("최적화 파라미터:", conservative.get_optimal_params())
     
     # 커스텀 설정
     custom = create_custom_config(
@@ -205,4 +282,8 @@ if __name__ == "__main__":
         max_positions=10,
         stop_loss_rate=-0.06
     )
-    print("커스텀 설정:", custom.to_dict())
+    print("\n커스텀 설정:", custom.to_dict())
+    
+    # 최적화 파라미터 업데이트
+    custom.update_optimal_params(min_close_days=10, ma_period=30)
+    print("업데이트된 최적화 파라미터:", custom.get_optimal_params())

@@ -46,7 +46,7 @@ class TechnicalOptimizer:
         if quick_mode:
             # 빠른 최적화: 축소된 범위
             param_ranges = {
-                'min_close_days': [3, 5, 7],                  # 최저점 확인 기간
+                'min_close_days': [5, 7],                  # 최저점 확인 기간
                 'ma_period': [20, 30],                        # 이동평균 기간
                 'min_trade_amount': [1_000_000_000],          # 최소 거래대금
                 'min_technical_score': [0.6, 0.65],           # 최소 기술점수

@@ -96,7 +96,7 @@ def main():
             strategy_data['technical_params'] = {
                 'min_close_days': 7,          # 최저점 확인 기간 (최적화: 7일)
                 'ma_period': 20,              # 이동평균 기간 (유지: 20일)
-                'min_technical_score': 0.7    # 최소 기술점수 (최적화: 0.7로 상향)
+                'min_technical_score': 0.65    # 최소 기술점수 (최적화: 0.7로 상향)
             }
             print("✅ 기술적 분석 최적화 파라미터 설정")
             print(f"   📊 최저점 확인 기간: {strategy_data['technical_params']['min_close_days']}일")

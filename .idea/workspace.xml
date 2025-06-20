@@ -6,11 +6,13 @@
   <component name="ChangeListManager">
     <list default="true" id="481af4c9-239f-4fc7-8ff3-91922ba98bc7" name="변경" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/analysis/technical.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/backtest/engine.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/executor.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/6-3.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/6-3.ipynb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/config/backtest_settings.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/strategy/selector.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" beforeDir="false" afterPath="$PROJECT_DIR$/hanlyang_stock/utils/storage.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/run_modular_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_modular_backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_news_backtest.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_news_backtest.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/run_technical_optimization.py" beforeDir="false" afterPath="$PROJECT_DIR$/run_technical_optimization.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/strategy.py" beforeDir="false" afterPath="$PROJECT_DIR$/strategy.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -100,17 +102,6 @@
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
-          <url>file://$PROJECT_DIR$/hanlyang_stock/utils/storage.py</url>
-          <line>4</line>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/Hanlyang_Stock$run_modular_backtest.coverage" NAME="run_modular_backtest 커버리지 결과" MODIFIED="1749735637220" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />

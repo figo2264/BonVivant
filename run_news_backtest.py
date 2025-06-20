@@ -154,14 +154,8 @@ def run_news_backtest(test_period_days: int = 10, debug: bool = False):
     data_manager = get_data_manager()
     strategy_data = data_manager.get_data()
     
-    # 최적화 파라미터를 백테스트 파라미터로 설정
-    optimal_params = {
-        'min_close_days': 7,
-        'ma_period': 20,  # 30 → 20
-        'min_trade_amount': 300_000_000,  # 1억 → 3억
-        'min_technical_score': 0.7,  # 0.65 → 0.7
-        'max_positions': 5
-    }
+    # 설정에서 최적화 파라미터 가져오기
+    optimal_params = config.get_optimal_params()
     
     # strategy_data에 백테스트 파라미터 추가
     strategy_data['backtest_params'] = optimal_params
@@ -251,14 +245,8 @@ def compare_strategies(test_period_days: int = 30):
     data_manager = get_data_manager()
     strategy_data = data_manager.get_data()
     
-    # 최적화 파라미터를 백테스트 파라미터로 설정
-    optimal_params = {
-        'min_close_days': 7,
-        'ma_period': 20,  # 30 → 20
-        'min_trade_amount': 300_000_000,  # 1억 → 3억
-        'min_technical_score': 0.7,  # 0.65 → 0.7
-        'max_positions': 5
-    }
+    # 설정에서 최적화 파라미터 가져오기
+    optimal_params = config.get_optimal_params()
     
     # strategy_data에 백테스트 파라미터 추가
     strategy_data['backtest_params'] = optimal_params
