@@ -12,7 +12,7 @@ class TechnicalParameters:
     """기술적 분석 파라미터"""
     min_close_days: int = 7              # 최저점 확인 기간
     ma_period: int = 20                  # 이동평균 기간
-    min_technical_score: float = 0.6     # 최소 기술적 점수 (0.65에서 0.6으로 하향)
+    min_technical_score: float = 0.5     # 최소 기술적 점수 (0.6에서 0.5로 추가 하향)
     rsi_hold_upper: int = 70             # RSI 상한선
     rsi_hold_lower: int = 30             # RSI 하한선
     volume_surge_threshold: float = 2.0   # 거래량 급증 기준
@@ -35,7 +35,7 @@ class HybridStrategyParameters:
     enabled: bool = True
     news_weight: float = 0.3            # 뉴스 가중치 (0~1)
     technical_weight: float = 0.7       # 기술적 분석 가중치 (0~1)
-    min_combined_score: float = 0.7     # 최소 종합 점수
+    min_combined_score: float = 0.55     # 최소 종합 점수
     block_negative_news: bool = True    # 부정적 뉴스 차단
     debug_news: bool = True             # 뉴스 디버깅 모드
     
@@ -78,7 +78,7 @@ class QualityFilterParameters:
     """품질 필터 파라미터"""
     enabled: bool = True
     min_market_cap: float = 50_000_000_000       # 최소 시가총액 (500억) - 하향 조정
-    min_trade_amount: float = 300_000_000        # 최소 거래대금 (3억) - 백테스트와 일치
+    min_trade_amount: float = 100_000_000        # 최소 거래대금 (1억) - 추가 완화
     trend_strength_filter_enabled: bool = True   # 추세 강도 필터 사용
     
     def to_dict(self) -> Dict[str, Any]:
@@ -99,6 +99,27 @@ class StrategyConfig:
     max_selections: int = 5                       # 최대 선정 종목 수 - 백테스트 기본값과 일치
     stop_loss_enabled: bool = True                # 손실 제한 사용
     stop_loss_rate: float = -0.05                 # 손실 제한 비율 (-5%)
+    
+    # 포지션 관리 (수익률 극대화)
+    position_size_ratio: float = 0.9              # 현금 대비 투자 비율 (90%)
+    safety_cash_amount: float = 1_000_000         # 안전 자금 (100만원)
+    
+    # 투자 금액 설정 (기술적 점수별)
+    investment_amounts: Dict[str, float] = field(default_factory=lambda: {
+        '최고신뢰': 1_200_000,    # 120만원 (점수 0.8+)
+        '고신뢰': 900_000,        # 90만원 (점수 0.7-0.8)
+        '중신뢰': 600_000,        # 60만원 (점수 0.65-0.7)
+        '저신뢰': 400_000         # 40만원 (점수 0.65 미만)
+    })
+    
+    # 백테스트 파라미터
+    backtest_params: Dict[str, Any] = field(default_factory=lambda: {
+        'min_close_days': 7,
+        'ma_period': 20,
+        'min_trade_amount': 100_000_000,  # 1억
+        'min_technical_score': 0.5,       # 0.5로 완화
+        'max_positions': 7                # 7개로 증가
+    })
     
     # 최대 보유 기간
     max_holding_days: Dict[str, int] = field(default_factory=lambda: {
@@ -129,6 +150,10 @@ class StrategyConfig:
             'max_selections': self.max_selections,
             'stop_loss_enabled': self.stop_loss_enabled,
             'stop_loss_rate': self.stop_loss_rate,
+            'position_size_ratio': self.position_size_ratio,
+            'safety_cash_amount': self.safety_cash_amount,
+            'investment_amounts': self.investment_amounts,
+            'backtest_params': self.backtest_params,
             'max_holding_days': self.max_holding_days,
             'stability_focused_target': self.stability_focused_target,
             'profit_threshold': self.profit_threshold,
@@ -186,7 +211,7 @@ class StrategyConfig:
             enabled=config_dict.get('hybrid_strategy_enabled', True),
             news_weight=config_dict.get('news_weight', 0.3),
             technical_weight=config_dict.get('technical_weight', 0.7),
-            min_combined_score=config_dict.get('min_combined_score', 0.7),
+            min_combined_score=config_dict.get('min_combined_score', 0.55),
             block_negative_news=config_dict.get('block_negative_news', True),
             debug_news=config_dict.get('debug_news', True)
         )
@@ -210,9 +235,24 @@ class StrategyConfig:
         )
         
         return cls(
-            max_selections=config_dict.get('max_selections', 3),
+            max_selections=config_dict.get('max_selections', 5),
             stop_loss_enabled=config_dict.get('stop_loss_enabled', True),
             stop_loss_rate=config_dict.get('stop_loss_rate', -0.05),
+            position_size_ratio=config_dict.get('position_size_ratio', 0.9),
+            safety_cash_amount=config_dict.get('safety_cash_amount', 1_000_000),
+            investment_amounts=config_dict.get('investment_amounts', {
+                '최고신뢰': 1_200_000,
+                '고신뢰': 900_000,
+                '중신뢰': 600_000,
+                '저신뢰': 400_000
+            }),
+            backtest_params=config_dict.get('backtest_params', {
+                'min_close_days': 7,
+                'ma_period': 20,
+                'min_trade_amount': 100_000_000,
+                'min_technical_score': 0.5,
+                'max_positions': 7
+            }),
             max_holding_days=config_dict.get('max_holding_days', {'basic': 5, 'hybrid': 10}),
             stability_focused_target=config_dict.get('stability_focused_target', True),
             profit_threshold=config_dict.get('profit_threshold', 0.005),
@@ -266,7 +306,25 @@ AGGRESSIVE_STRATEGY = StrategyConfig(
     )
 )
 
-BALANCED_STRATEGY = StrategyConfig()  # 기본값 사용
+BALANCED_STRATEGY = StrategyConfig(
+    # 수익률 극대화 설정
+    max_selections=5,
+    position_size_ratio=0.9,
+    safety_cash_amount=1_000_000,
+    investment_amounts={
+        '최고신뢰': 1_200_000,
+        '고신뢰': 900_000,
+        '중신뢰': 600_000,
+        '저신뢰': 400_000
+    },
+    backtest_params={
+        'min_close_days': 7,
+        'ma_period': 20,
+        'min_trade_amount': 100_000_000,
+        'min_technical_score': 0.55,
+        'max_positions': 7
+    }
+)
 
 # 설정 프리셋
 STRATEGY_PRESETS = {

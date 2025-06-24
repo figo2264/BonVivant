@@ -12,9 +12,9 @@ class OptimizedParameters:
     """최적화된 백테스트 파라미터"""
     min_close_days: int = 7              # 최저점 확인 기간
     ma_period: int = 20                  # 이동평균 기간
-    min_trade_amount: float = 300_000_000  # 최소 거래대금 (3억원)
-    min_technical_score: float = 0.6     # 최소 기술적 점수 (0.65에서 0.6으로 하향)
-    max_positions: int = 5               # 최대 보유 종목 수
+    min_trade_amount: float = 100_000_000        # 최소 거래대금 (최적화: 1억원)
+    min_technical_score: float = 0.5     # 최소 기술적 점수 (0.6에서 0.5로 추가 하향)
+    max_positions: int = 7               # 최대 보유 종목 수 (수익률 극대화)
     
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -34,22 +34,22 @@ class BacktestConfig:
     # 기본 설정
     initial_capital: float = 10_000_000      # 초기 자본 (1000만원)
     transaction_cost: float = 0.003          # 거래 비용 (0.3%)
-    max_positions: int = 5                   # 최대 보유 종목 수
+    max_positions: int = 7                   # 최대 보유 종목 수 (수익률 극대화)
     
     # 리스크 관리
     stop_loss_rate: float = -0.05            # 손실 제한 (-5%)
     max_holding_days: int = 5                # 최대 보유 일수
-    position_size_ratio: float = 0.8         # 현금 대비 투자 비율
-    safety_cash_amount: float = 2_000_000    # 안전 자금 (200만원)
+    position_size_ratio: float = 0.9         # 현금 대비 투자 비율 (수익률 극대화)
+    safety_cash_amount: float = 1_000_000    # 안전 자금 (100만원으로 감소)
     
     # 기술적 분석 설정
-    min_technical_score: float = 0.6         # 최소 기술적 점수 (0.65에서 0.6으로 하향)
+    min_technical_score: float = 0.5         # 최소 기술적 점수 (0.5로 추가 하향)
     enhanced_analysis: bool = True           # 강화된 기술적 분석 사용
     
     # 종목 선정 파라미터 (최적화 결과 반영)
     min_close_days: int = 7                  # 최저점 확인 기간 (최적화: 7일)
     ma_period: int = 20                      # 이동평균 기간 (최적화: 20일)
-    min_trade_amount: float = 300_000_000    # 최소 거래대금 (최적화: 3억원)
+    min_trade_amount: float = 100_000_000    # 최소 거래대금 (최적화: 1억원)
     
     # 투자 금액 설정 (기술적 점수별)
     investment_amounts: Dict[str, float] = None
@@ -60,10 +60,10 @@ class BacktestConfig:
     def __post_init__(self):
         if self.investment_amounts is None:
             self.investment_amounts = {
-                '최고신뢰': 800_000,    # 80만원 (점수 0.8+)
-                '고신뢰': 600_000,      # 60만원 (점수 0.7-0.8)
-                '중신뢰': 400_000,      # 40만원 (점수 0.65-0.7)
-                '저신뢰': 300_000       # 30만원 (점수 0.65 미만)
+                '최고신뢰': 1_200_000,    # 120만원 (점수 0.8+) - 증가
+                '고신뢰': 900_000,        # 90만원 (점수 0.7-0.8) - 증가
+                '중신뢰': 600_000,        # 60만원 (점수 0.65-0.7) - 증가
+                '저신뢰': 400_000         # 40만원 (점수 0.65 미만) - 증가
             }
         
         # 최적화된 파라미터가 없으면 기본값으로 생성
@@ -200,7 +200,14 @@ AGGRESSIVE_CONFIG = BacktestConfig(
 
 BALANCED_CONFIG = BacktestConfig(
     # 기본값 사용 (균형잡힌 설정)
-    optimized_params=OptimizedParameters()  # 기본 최적화 파라미터
+    max_positions=7,                     # 수익률 극대화
+    position_size_ratio=0.9,             # 수익률 극대화
+    safety_cash_amount=1_000_000,        # 안전 자금 감소
+    min_technical_score=0.5,             # 기술점수 기준 완화
+    optimized_params=OptimizedParameters(
+        max_positions=7,                 # OptimizedParameters도 7로
+        min_technical_score=0.5          # 기술점수 기준도 동일하게
+    )
 )
 
 # 설정 프리셋

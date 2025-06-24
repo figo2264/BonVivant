@@ -2,6 +2,7 @@
 # Cron 실행 대상 파일
 # 백테스트 엔진의 기술적 분석 기능 완전 적용
 # 설정값은 hanlyang_stock/config/strategy_settings.py에서 관리
+# ⚡ 수익률 극대화 설정 적용됨 (max_positions=7, min_technical_score=0.5, min_trade_amount=5억)
 
 import time
 from datetime import datetime
@@ -17,6 +18,7 @@ from hanlyang_stock.utils.notification import get_notifier
 def main():
     """메인 실행 함수 - 하이브리드 전략 (기술적 분석 + 뉴스 감정 분석)"""
     print("🚀 한량 주식 하이브리드 전략 시작! (기술적 분석 + 뉴스 감정 분석)")
+    print("💰 수익률 극대화 설정 적용됨")
     print("📋 설정값 관리: hanlyang_stock/config/strategy_settings.py")
     
     # 환경변수로 프리셋 선택 가능 (기본값: balanced)
@@ -32,19 +34,42 @@ def main():
         strategy_data = data_manager.get_data()
         
         print(f"✅ 모든 모듈 초기화 완료 (프리셋: {preset})")
+        print("💰 ⚡ 수익률 극대화 설정 적용 중 ⚡")
         print("📊 주요 설정값:")
-        print(f"   🎯 최대 선정 종목: {strategy_data.get('max_selections')}개")
-        print(f"   🛑 손실 제한: {strategy_data.get('stop_loss_rate')*100:.1f}%")
+        print(f"   🎯 최대 선정 종목: {strategy_data.get('max_selections', 5)}개")
+        print(f"   🏢 최대 보유 종목: {strategy_data.get('backtest_params', {}).get('max_positions', 7)}개 (수익률 극대화)")
+        print(f"   💰 투자 비율: {strategy_data.get('position_size_ratio', 0.9)*100:.0f}% (수익률 극대화)")
+        print(f"   🛡️ 안전 자금: {strategy_data.get('safety_cash_amount', 1_000_000)/10_000:.0f}만원 (최소화)")
+        print(f"   🛑 손실 제한: {strategy_data.get('stop_loss_rate', -0.05)*100:.1f}%")
         print(f"   🤝 하이브리드 전략: {'활성화' if strategy_data.get('hybrid_strategy_enabled') else '비활성화'}")
         if strategy_data.get('hybrid_strategy_enabled'):
-            print(f"      - 기술적 분석: {strategy_data.get('technical_weight')*100:.0f}%")
-            print(f"      - 뉴스 감정: {strategy_data.get('news_weight')*100:.0f}%")
+            print(f"      - 기술적 분석: {strategy_data.get('technical_weight', 0.7)*100:.0f}%")
+            print(f"      - 뉴스 감정: {strategy_data.get('news_weight', 0.3)*100:.0f}%")
         print(f"   💎 품질 필터:")
-        print(f"      - 최소 시가총액: {strategy_data.get('min_market_cap')/1_000_000_000:.0f}억원")
-        print(f"      - 최소 거래대금: {strategy_data.get('enhanced_min_trade_amount')/100_000_000:.0f}억원")
+        print(f"      - 최소 시가총액: {strategy_data.get('min_market_cap', 50_000_000_000)/1_000_000_000:.0f}억원")
+        # backtest_params의 min_trade_amount를 우선 확인
+        min_trade_amt = strategy_data.get('backtest_params', {}).get('min_trade_amount', 
+                                         strategy_data.get('enhanced_min_trade_amount', 500_000_000))
+        print(f"      - 최소 거래대금: {min_trade_amt/100_000_000:.0f}억원")
+        print(f"      - 최소 기술점수: {strategy_data.get('backtest_params', {}).get('min_technical_score', 0.5)} (수익률 극대화)")
+        print(f"   🔍 추세 강도 필터: {'활성화 (4개 중 3개 충족)' if strategy_data.get('trend_strength_filter_enabled', True) else '비활성화'}")
+        if strategy_data.get('trend_strength_filter_enabled', True):
+            print(f"      - 양봉 크기: 0.5% 이상")
+            print(f"      - 거래량: 5일 평균 대비 1.2배")
+            print(f"      - RSI: 30-50 구간에서 상승")
+            print(f"      - 지지선: 5% 이내")
         print(f"   🔄 피라미딩: {'활성화' if strategy_data.get('pyramiding_enabled') else '비활성화'}")
         print(f"   📅 최대 보유기간: 기본 {strategy_data.get('max_holding_days', {}).get('basic', 5)}일, "
               f"하이브리드 {strategy_data.get('max_holding_days', {}).get('hybrid', 10)}일")
+        
+        # 투자 금액 설정 표시
+        investment_amounts = strategy_data.get('investment_amounts', {})
+        if investment_amounts:
+            print(f"   💸 기술점수별 투자금액 (수익률 극대화):")
+            print(f"      - 최고신뢰(0.8+): {investment_amounts.get('최고신뢰', 1_200_000)/10_000:.0f}만원")
+            print(f"      - 고신뢰(0.7-0.8): {investment_amounts.get('고신뢰', 900_000)/10_000:.0f}만원")
+            print(f"      - 중신뢰(0.65-0.7): {investment_amounts.get('중신뢰', 600_000)/10_000:.0f}만원")
+            print(f"      - 저신뢰(0.5-0.65): {investment_amounts.get('저신뢰', 400_000)/10_000:.0f}만원")
         
     except Exception as e:
         print(f"❌ 초기화 오류: {e}")
@@ -69,7 +94,7 @@ def main():
         if current_time.hour == 8 and 30 <= current_time.minute <= 32 and not executed_today:
         # if True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
-                print("🌅 아침 매도 전략 실행 시작!")
+                print("🌅 아침 매도 전략 실행 시작! (수익률 극대화 모드)")
                 
                 # 최신 설정 다시 로드 (설정 파일 기반)
                 strategy_data = data_manager.get_data()
@@ -96,7 +121,7 @@ def main():
         elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
         # elif True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
-                print("🚀 오후 매수 전략 실행 시작!")
+                print("🚀 오후 매수 전략 실행 시작! (수익률 극대화 모드)")
                 
                 # 최신 설정 다시 로드 (설정 파일 기반)
                 strategy_data = data_manager.get_data()
@@ -104,9 +129,9 @@ def main():
                 # 매수 전략 설정 (하이브리드 전략에 필요한 파라미터만 전달)
                 buy_config = {
                     'hybrid_strategy_enabled': strategy_data.get('hybrid_strategy_enabled', True),
-                    'news_weight': strategy_data.get('news_weight', 0.5),
-                    'technical_weight': strategy_data.get('technical_weight', 0.5),
-                    'min_combined_score': strategy_data.get('min_combined_score', 0.7),
+                    'news_weight': strategy_data.get('news_weight', 0.3),
+                    'technical_weight': strategy_data.get('technical_weight', 0.7),
+                    'min_combined_score': strategy_data.get('min_combined_score', 0.55),
                     'debug_news': strategy_data.get('debug_news', True)
                 }
 
@@ -116,7 +141,7 @@ def main():
                 print(f"✅ 매수 전략 완료: {buy_results.get('bought_count', 0)}개 종목 매수")
                 print(f"   💳 총 투자: {buy_results.get('total_investment', 0):,}원")
                 if strategy_data.get('hybrid_strategy_enabled'):
-                    print(f"   📊 하이브리드 전략 기반 선정 (기술적 + 뉴스)")
+                    print(f"   📊 하이브리드 전략 기반 선정 (기술적 70% + 뉴스 30%)")
                 else:
                     print(f"   📊 기술적 분석 기반 선정")
                 

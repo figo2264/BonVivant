@@ -69,13 +69,16 @@ class StrategyDataManager:
             'enhanced_analysis_enabled': True,
             'performance_log': [],
             'purchase_info': {},
-            # 전략 설정값들
+            # 전략 설정값들 (최적화된 값)
             'stop_loss_enabled': True,
-            'hybrid_strategy_enabled': False,
-            'pyramiding_enabled': False,
-            'min_market_cap': 2_000_000_000_000,  # 2천억
-            'enhanced_min_trade_amount': 300_000_000,  # 3억
-            'max_selections': 3,
+            'stop_loss_rate': -0.05,              # -5%
+            'hybrid_strategy_enabled': True,       # 하이브리드 전략 활성화
+            'pyramiding_enabled': True,            # 피라미딩 활성화
+            'min_market_cap': 50_000_000_000,     # 500억으로 완화
+            'enhanced_min_trade_amount': 100_000_000,  # 1억으로 완화
+            'max_selections': 5,                   # 5개 선정
+            'position_size_ratio': 0.9,            # 90% 투자
+            'safety_cash_amount': 1_000_000,       # 안전자금 100만원
             'pyramiding_max_position': 0.3,
             'pyramiding_investment_ratio': 0.5,
             'pyramiding_max_resets': 2,
@@ -84,13 +87,21 @@ class StrategyDataManager:
             'technical_weight': 0.7,
             'min_combined_score': 0.7,
             'debug_news': True,
-            # 백테스트 파라미터
+            'trend_strength_filter_enabled': True,  # 추세 강도 필터 활성화
+            # 투자 금액 설정 (50% 증액)
+            'investment_amounts': {
+                '최고신뢰': 1_200_000,    # 120만원
+                '고신뢰': 900_000,        # 90만원
+                '중신뢰': 600_000,        # 60만원
+                '저신뢰': 400_000         # 40만원
+            },
+            # 백테스트 파라미터 (최적화된 값)
             'backtest_params': {
                 'min_close_days': 7,
                 'ma_period': 20,
-                'min_trade_amount': 300_000_000,
-                'min_technical_score': 0.65,
-                'max_positions': 5
+                'min_trade_amount': 100_000_000,  # 1억
+                'min_technical_score': 0.5,       # 0.5로 완화
+                'max_positions': 7                # 7개로 증가
             }
         }
     

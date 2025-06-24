@@ -43,7 +43,7 @@ def run_simple_backtest():
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/100_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     
     # 최근 10일간 백테스트 (테스트용)
@@ -65,6 +65,92 @@ def run_simple_backtest():
         
     except Exception as e:
         print(f"❌ 백테스트 실행 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def run_profit_maximized_backtest():
+    """수익률 극대화 백테스트 실행"""
+    print("💰 수익률 극대화 백테스트 실행")
+    print("=" * 60)
+    
+    # 수익률 극대화를 위한 커스텀 설정
+    custom_config = create_custom_config(
+        initial_capital=10_000_000,      # 1000만원
+        max_positions=7,                 # 7개 종목까지
+        position_size_ratio=0.9,         # 90% 투자
+        safety_cash_amount=1_000_000,    # 안전 자금 100만원
+        stop_loss_rate=-0.05,            # -5% 손실제한
+        min_technical_score=0.5,         # 기술점수 기준 완화
+        investment_amounts={              # 투자 금액 증액
+            '최고신뢰': 1_200_000,       # 120만원 (점수 0.8+)
+            '고신뢰': 900_000,           # 90만원 (점수 0.7-0.8)
+            '중신뢰': 600_000,           # 60만원 (점수 0.65-0.7)
+            '저신뢰': 400_000            # 40만원 (점수 0.65 미만)
+        }
+    )
+    
+    print("💰 수익률 극대화 설정:")
+    print(f"  초기 자본: {custom_config.initial_capital:,}원")
+    print(f"  최대 보유 종목: {custom_config.max_positions}")
+    print(f"  투자 비율: {custom_config.position_size_ratio*100:.0f}%")
+    print(f"  안전 자금: {custom_config.safety_cash_amount:,}원")
+    print(f"  손실 제한: {custom_config.stop_loss_rate*100:.1f}%")
+    print(f"  최소 기술점수: {custom_config.min_technical_score}")
+    
+    # 백테스트 엔진 생성
+    engine = BacktestEngine(
+        initial_capital=custom_config.initial_capital,
+        transaction_cost=custom_config.transaction_cost
+    )
+    
+    # 최적화된 백테스트 파라미터 설정
+    from hanlyang_stock.utils.storage import get_data_manager
+    data_manager = get_data_manager()
+    strategy_data = data_manager.get_data()
+    
+    # 커스텀 설정에서 최적화 파라미터 가져오기
+    optimal_params = custom_config.get_optimal_params()
+    # 커스텀 설정 적용
+    optimal_params['max_positions'] = custom_config.max_positions
+    optimal_params['min_technical_score'] = custom_config.min_technical_score
+    
+    # 수익률 극대화를 위한 추가 설정
+    strategy_data['position_size_ratio'] = custom_config.position_size_ratio
+    strategy_data['safety_cash_amount'] = custom_config.safety_cash_amount
+    strategy_data['investment_amounts'] = custom_config.investment_amounts
+    
+    # strategy_data에 백테스트 파라미터 추가
+    strategy_data['backtest_params'] = optimal_params
+    data_manager.save()
+    
+    print("\n📊 최적화 파라미터 적용:")
+    print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
+    print(f"   - 이동평균: {optimal_params['ma_period']}일")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/100_000_000:.0f}억원")
+    print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
+    print(f"   - 최대 보유종목: {optimal_params['max_positions']}개")
+    
+    # 1개월간 백테스트
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+    
+    try:
+        # 백테스트 실행
+        results = engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
+        
+        # 결과 저장
+        filename = engine.save_results("profit_maximized_backtest.json")
+        
+        print(f"\n✅ 수익률 극대화 백테스트 완료! 결과 파일: {filename}")
+        return results
+        
+    except Exception as e:
+        print(f"❌ 수익률 극대화 백테스트 실행 오류: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -111,7 +197,7 @@ def run_custom_backtest():
     print("\n📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/100_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     
     # 1개월간 백테스트
@@ -161,7 +247,7 @@ def run_period_comparison():
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
     print(f"   - 이동평균: {optimal_params['ma_period']}일")
-    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/1_000_000_000:.0f}억원")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/100_000_000:.0f}억원")
     print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
     print()
     
@@ -296,10 +382,11 @@ def main():
         print("2) 커스텀 백테스트 (사용자 설정, 1개월)")
         print("3) 기간별 비교 백테스트")
         print("4) 대화형 백테스트 (사용자 입력)")
-        print("5) 종료")
+        print("5) 💰 수익률 극대화 백테스트 (NEW)")
+        print("6) 종료")
         
         try:
-            choice = input("\n선택 (1-5): ").strip()
+            choice = input("\n선택 (1-6): ").strip()
             
             if choice == '1':
                 run_simple_backtest()
@@ -310,10 +397,12 @@ def main():
             elif choice == '4':
                 interactive_backtest()
             elif choice == '5':
+                run_profit_maximized_backtest()
+            elif choice == '6':
                 print("백테스트 엔진 종료")
                 break
             else:
-                print("잘못된 선택입니다. 1-5 중에서 선택해주세요.")
+                print("잘못된 선택입니다. 1-6 중에서 선택해주세요.")
                 
         except KeyboardInterrupt:
             print("\n백테스트 엔진 종료")

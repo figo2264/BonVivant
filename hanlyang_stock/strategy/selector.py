@@ -285,10 +285,10 @@ class StockSelector:
         strategy_data = self.data_manager.get_data()
         
         if min_trade_amount is None:
-            # 기본값: 3억원으로 수정 (기존 10억에서 하향)
-            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', 300_000_000)
+            # 기본값: 1억원으로 수정 (기존 3억에서 하향)
+            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', 100_000_000)
         
-        print(f"💰 강화된 유동성 필터 적용 (최소 거래대금: {min_trade_amount/1_000_000_000:.1f}억원)")
+        print(f"💰 강화된 유동성 필터 적용 (최소 거래대금: {min_trade_amount/100_000_000:.0f}억원)")
         
         # 거래대금 필터 적용
         before_count = len(market_data['ticker'].unique())
@@ -337,9 +337,9 @@ class StockSelector:
             bool: 품질 높은 양봉 여부
         """
         try:
-            # 1. 양봉 크기: 최소 1.5% 이상 상승 (기존 2%에서 완화)
+            # 1. 양봉 크기: 최소 0.5% 이상 상승 (기존 1.0%에서 추가 완화)
             candle_size = (row['close'] - row['open']) / row['open']
-            if candle_size < 0.015:  # 1.5%로 완화
+            if candle_size < 0.005:  # 0.5%로 완화
                 return False
             
             # 2. 긴 아래꼬리 확인 (망치형 캔들)
@@ -387,7 +387,7 @@ class StockSelector:
                 return True
             
             # 조건:
-            # 1. 당일 거래량이 5일 평균의 1.5배 이상
+            # 1. 당일 거래량이 5일 평균의 1.2배 이상 (기존 1.5배에서 완화)
             # 2. 거래대금도 함께 증가 (허수 거래 방지)
             volume_ratio = current_volume / avg_volume_5d
             
@@ -396,9 +396,9 @@ class StockSelector:
             
             if avg_trade_amount_5d > 0:
                 trade_amount_ratio = current_trade_amount / avg_trade_amount_5d
-                return volume_ratio >= 1.5 and trade_amount_ratio >= 1.3
+                return volume_ratio >= 1.2 and trade_amount_ratio >= 1.1  # 1.2배, 1.1배로 완화
             else:
-                return volume_ratio >= 1.5
+                return volume_ratio >= 1.2  # 1.2배로 완화
                 
         except Exception as e:
             print(f"⚠️ 거래량 급증 확인 오류: {e}")
@@ -426,10 +426,10 @@ class StockSelector:
             
             # RSI 계산
             ticker_data = create_technical_features(ticker_data)
-            
+
             # 최근 3일간 RSI 추세
             if 'rsi_14' not in ticker_data.columns:
-                print(f"⚠️ RSI 지표가 계산되지 않음: {ticker}")
+                # print(f"⚠️ RSI 지표가 계산되지 않음: {ticker}")
                 return True  # RSI 계산 불가시 통과
             
             recent_rsi = ticker_data['rsi_14'].tail(3).values
@@ -441,9 +441,9 @@ class StockSelector:
             # 1. RSI가 30 근처에서 반등 (과매도 → 상승)
             # 2. RSI가 상승 추세
             
-            # RSI 30~40 구간에서 상승 중
-            if 30 <= recent_rsi[-1] <= 40:
-                return recent_rsi[-1] > recent_rsi[-2] > recent_rsi[-3]
+            # RSI 30~50 구간에서 상승 중 (기존 30~40에서 확대)
+            if 30 <= recent_rsi[-1] <= 50:
+                return recent_rsi[-1] > recent_rsi[-2]  # 단순 상승 추세만 확인
             
             # RSI가 30 미만에서 반등
             if recent_rsi[-2] < 30 and recent_rsi[-1] > recent_rsi[-2]:
@@ -494,11 +494,11 @@ class StockSelector:
             # 중복 제거
             support_levels = list(set(support_levels))
             
-            # 현재가가 가장 가까운 지지선의 3% 이내
+            # 현재가가 가장 가까운 지지선의 5% 이내 (기존 3%에서 완화)
             nearest_support = min(support_levels, key=lambda x: abs(x - current_price))
             distance_ratio = abs(current_price - nearest_support) / nearest_support
             
-            return distance_ratio <= 0.03
+            return distance_ratio <= 0.05  # 5%로 완화
             
         except Exception as e:
             print(f"⚠️ 지지선 확인 오류: {e}")
@@ -523,7 +523,7 @@ class StockSelector:
             # 파라미터 설정 (technical_params 우선, 그 다음 백테스트 파라미터, 없으면 기본값)
             min_close_days = technical_params.get('min_close_days', backtest_params.get('min_close_days', 7))  # 최적화: 7일
             ma_period = technical_params.get('ma_period', backtest_params.get('ma_period', 20))
-            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', backtest_params.get('min_trade_amount', 300_000_000))  # 최적화: 3억
+            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', backtest_params.get('min_trade_amount', 100_000_000))  # 최적화: 1억
             min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', 0.65))  # 최적화: 0.7
             
             # 백테스트 모드일 때 날짜 설정
@@ -542,7 +542,7 @@ class StockSelector:
                 print(f"   🔧 백테스트 파라미터 적용:")
                 print(f"      - 최저점 기간: {min_close_days}일")
                 print(f"      - 이평선 기간: {ma_period}일")
-                print(f"      - 최소 거래대금: {min_trade_amount/1_000_000_000:.0f}억")
+                print(f"      - 최소 거래대금: {min_trade_amount/100_000_000:.0f}억")
                 print(f"      - 최소 기술점수: {min_technical_score}")
             
             # 현재 날짜의 시장 데이터 조회 (백테스트 모드 고려)
@@ -649,39 +649,50 @@ class StockSelector:
             
             if trend_strength_filter_enabled:
                 print("\n🔍 [추세 강도 필터] 적용 시작...")
-                print("   📋 필터 조건:")
-                print("      - 양봉 크기 1.5% 이상")
-                print("      - 거래량 5일 평균 대비 1.5배 이상")
-                print("      - RSI 반등 신호 (과매도 구간에서 상승)")
-                print("      - 지지선 근처 (3% 이내)")
+                print("   📋 필터 조건 (4개 중 3개 이상 충족시 통과):")
+                print("      - 양봉 크기 0.5% 이상")
+                print("      - 거래량 5일 평균 대비 1.2배 이상")
+                print("      - RSI 반등 신호 (30-50 구간에서 상승)")
+                print("      - 지지선 근처 (5% 이내)")
                 
                 strong_candidates = []
                 
                 for _, row in traditional_candidates.iterrows():
                     ticker = row['ticker']
                     
+                    # 각 조건 체크 및 점수 계산
+                    score = 0
+                    passed_conditions = []
+                    
                     # 1. 양봉 품질 검증
-                    if not self.validate_bullish_candle(row):
-                        # print(f"   ❌ {ticker}: 양봉 품질 부족 (2% 미만 상승 또는 형태 불량)")
-                        continue
+                    if self.validate_bullish_candle(row):
+                        score += 1
+                        passed_conditions.append("양봉")
                     
                     # 2. 거래량 급증 확인
-                    if not self.check_volume_surge(market_data, ticker):
-                        # print(f"   ❌ {ticker}: 거래량 증가 부족 (5일 평균 대비 1.5배 미만)")
-                        continue
+                    if self.check_volume_surge(market_data, ticker):
+                        score += 1
+                        passed_conditions.append("거래량")
                     
                     # 3. RSI 반등 신호
-                    if not self.check_rsi_reversal(market_data, ticker):
-                        # print(f"   ❌ {ticker}: RSI 반등 신호 없음 (과매수 또는 하락 추세)")
-                        continue
+                    if self.check_rsi_reversal(market_data, ticker):
+                        score += 1
+                        passed_conditions.append("RSI")
                     
                     # 4. 지지선 근처 확인
-                    if not self.check_near_support(row, market_data, ticker):
-                        # print(f"   ❌ {ticker}: 지지선에서 멀음 (3% 초과)")
-                        continue
+                    if self.check_near_support(row, market_data, ticker):
+                        score += 1
+                        passed_conditions.append("지지선")
                     
-                    print(f"   ✅ {ticker}: 모든 추세 강도 필터 통과")
-                    strong_candidates.append(row)
+                    # 4개 중 3개 이상 통과시 선정
+                    if score >= 3:
+                        print(f"   ✅ {ticker}: 추세 강도 필터 통과 ({score}/4) - {', '.join(passed_conditions)}")
+                        strong_candidates.append(row)
+                    elif score == 2:
+                        pass
+                        # print(f"   ⚠️ {ticker}: \부분 통과 ({score}/4) - {', '.join(passed_conditions)}")
+                    # else:
+                    #     print(f"   ❌ {ticker}: 필터 미달 ({score}/4)")
                 
                 if strong_candidates:
                     traditional_candidates = pd.DataFrame(strong_candidates)
