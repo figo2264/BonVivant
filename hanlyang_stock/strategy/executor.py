@@ -724,9 +724,12 @@ class BuyExecutor:
         bought_tickers = []
         total_invested = 0
         confidence_stats = {}
-        max_positions = 10  # 최대 보유 종목 수
         
         strategy_data = self.data_manager.get_data()
+        
+        # 설정에서 max_positions 가져오기
+        backtest_params = strategy_data.get('backtest_params', {})
+        max_positions = backtest_params.get('max_positions', 7)  # 설정값 사용, 기본값 7
         
         print(f"📊 매수 실행 시작 - 후보: {len(buy_candidates)}개")
         
