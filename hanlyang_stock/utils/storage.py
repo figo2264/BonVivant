@@ -2,30 +2,40 @@
 Data storage and loading utilities
 """
 
+import os
 import json
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, Optional
 from hanlyang_stock.config.strategy_settings import get_strategy_config, StrategyConfig
+from hanlyang_stock.config.backtest_settings import get_backtest_config, BacktestConfig
 
 
 class StrategyDataManager:
     """전략 데이터 관리 클래스 - 실시간 계산 전환"""
     
-    def __init__(self, data_file='strategy_data.json', use_config_file=True, preset='balanced'):
+    def __init__(self, data_file='strategy_data.json', use_config_file=True, preset='balanced', config_type='strategy'):
         self.data_file = data_file
         self.use_config_file = use_config_file
         self.preset = preset
+        self.config_type = config_type  # 'strategy' 또는 'backtest'
         self.strategy_data = self._load_strategy_data()
     
     def _load_strategy_data(self) -> Dict[str, Any]:
         """전략 데이터 로드 (technical_analysis 제외)"""
         # 설정 파일 사용 시 기본값 가져오기
         if self.use_config_file:
-            config = get_strategy_config(self.preset)
-            base_data = config.to_dict()
-            print(f"✅ strategy_settings.py에서 '{self.preset}' 설정 로드")
+            if self.config_type == 'backtest':
+                # 백테스트 설정 사용
+                config = get_backtest_config(self.preset)
+                base_data = config.to_dict()
+                print(f"✅ backtest_settings.py에서 '{self.preset}' 설정 로드")
+            else:
+                # 전략 설정 사용 (기본값)
+                config = get_strategy_config(self.preset)
+                base_data = config.to_dict()
+                print(f"✅ strategy_settings.py에서 '{self.preset}' 설정 로드")
         else:
             base_data = self._get_default_data()
         
@@ -201,21 +211,35 @@ class StrategyDataManager:
             return obj
 
 
-# 전역 데이터 매니저 (싱글톤 패턴)
-_data_manager_instance = None
+# 전역 데이터 매니저 (싱글톤 패턴 - preset별로 관리)
+_data_manager_instances = {}
 
-def get_data_manager(use_config_file: bool = True, preset: str = 'balanced') -> StrategyDataManager:
+def get_data_manager(use_config_file: bool = True, preset: str = None) -> StrategyDataManager:
     """
-    데이터 매니저 인스턴스 반환 (싱글톤)
+    데이터 매니저 인스턴스 반환 (preset별 싱글톤)
     
     Args:
         use_config_file: strategy_settings.py 사용 여부
-        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive')
+        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive', 'small_capital')
+                None이면 환경변수 확인
     """
-    global _data_manager_instance
-    if _data_manager_instance is None:
-        _data_manager_instance = StrategyDataManager(use_config_file=use_config_file, preset=preset)
-    return _data_manager_instance
+    global _data_manager_instances
+    
+    # preset이 없으면 환경변수 확인
+    if preset is None:
+        preset = os.environ.get('STRATEGY_PRESET', 'balanced')
+    
+    # preset별로 별도의 인스턴스 관리
+    key = f"{preset}_{use_config_file}"
+    
+    if key not in _data_manager_instances:
+        _data_manager_instances[key] = StrategyDataManager(
+            use_config_file=use_config_file, 
+            preset=preset
+        )
+        print(f"✅ 새로운 데이터 매니저 인스턴스 생성: preset='{preset}'")
+    
+    return _data_manager_instances[key]
 
 def load_strategy_data() -> Dict[str, Any]:
     """전략 데이터 로드"""

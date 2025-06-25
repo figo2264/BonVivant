@@ -3,6 +3,7 @@ Main backtest engine - modularized version
 모듈화된 백테스트 엔진
 """
 
+import os
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -18,9 +19,12 @@ from ..strategy.news_based_selector import get_news_based_selector
 
 
 class BacktestEngine:
-    """모듈화된 백테스트 엔진 - hanlyang_stock 모듈 활용"""
+    """모듈화된 백테스트 엔진 - 설정 주입 방식"""
 
-    def __init__(self, initial_capital: float = 10_000_000, transaction_cost: float = 0.003, debug: bool = False):
+    def __init__(self, initial_capital: float = 10_000_000, 
+                 transaction_cost: float = 0.003, 
+                 debug: bool = False,
+                 config: Optional[Dict[str, Any]] = None):
         """
         백테스트 엔진 초기화
         
@@ -28,17 +32,25 @@ class BacktestEngine:
             initial_capital: 초기 자본금 (기본 1000만원)
             transaction_cost: 거래 비용 (기본 0.3%)
             debug: 디버그 모드
+            config: 백테스트 설정 (None이면 기본값 사용)
         """
         self.initial_capital = initial_capital
         self.transaction_cost = transaction_cost
         self.debug = debug
+        
+        # 설정 저장
+        self.config = config or {}
 
         # 모듈 인스턴스들
         self.portfolio = Portfolio(initial_capital, transaction_cost)
         self.data_fetcher = get_data_fetcher()
         self.technical_analyzer = get_technical_analyzer()
-        self.stock_selector = get_stock_selector()
-        self.news_selector = get_news_based_selector(debug=debug)  # 뉴스 기반 선택기 추가
+        
+        # 설정에서 프리셋 확인 (환경변수 대신 config 사용)
+        preset = self.config.get('preset', None)
+        self.stock_selector = get_stock_selector(preset=preset)
+        
+        self.news_selector = get_news_based_selector(debug=debug)
         self.data_validator = get_data_validator()
         self.performance_analyzer = get_performance_analyzer()
 
@@ -46,14 +58,30 @@ class BacktestEngine:
         self.stock_selector.set_backtest_mode(True)
 
         # 백테스트 설정
-        self.news_analysis_enabled = False  # 뉴스 분석 기능 비활성화 (기본값)
-        self.use_news_strategy = False  # 뉴스 전략 사용 여부
+        self.news_analysis_enabled = False
+        self.use_news_strategy = False
 
-        print(f"🚀 모듈화된 백테스트 엔진 초기화 완료")
+        print(f"🚀 백테스트 엔진 초기화 완료")
         print(f"   초기 자본: {initial_capital:,}원")
         print(f"   거래 비용: {transaction_cost * 100:.1f}%")
+        if config:
+            print(f"   설정 모드: 외부 설정 주입")
         if debug:
             print(f"   디버그 모드: 활성화")
+            
+    def _get_config_value(self, key: str, default: Any = None) -> Any:
+        """설정값 가져오기 (storage.py 대신 self.config 사용)"""
+        return self.config.get(key, default)
+        
+    def _get_backtest_params(self) -> Dict[str, Any]:
+        """백테스트 파라미터 가져오기"""
+        return self.config.get('backtest_params', {
+            'min_close_days': 7,
+            'ma_period': 20,
+            'min_trade_amount': 100_000_000,
+            'min_technical_score': 0.6,
+            'max_positions': 5
+        })
 
     def run_backtest(self, start_date: str, end_date: str, news_analysis_enabled: bool = False,
                      use_news_strategy: bool = False) -> Dict[str, Any]:
@@ -83,6 +111,16 @@ class BacktestEngine:
 
         # 뉴스 분석 기능 설정
         self.news_analysis_enabled = news_analysis_enabled
+        
+        # 백테스트 모드에서 백테스트 파라미터를 StockSelector에 설정
+        if self.config:
+            # StockSelector의 data_manager에 백테스트 파라미터 임시 설정
+            backtest_params = self._get_backtest_params()
+            if backtest_params:
+                # 백테스트 동안 임시로 사용할 파라미터 설정
+                self.stock_selector.data_manager._temp_backtest_params = backtest_params
+                self.stock_selector.data_manager._temp_config = self.config
+                print(f"📊 백테스트 파라미터 적용됨")
 
         # 날짜 범위 생성
         start = pd.to_datetime(start_date)
@@ -204,12 +242,9 @@ class BacktestEngine:
         # 현재 보유 종목 수 확인
         current_holdings = self.portfolio.get_current_holdings()
 
-        # 설정에서 max_positions 가져오기
-        from ..utils.storage import get_data_manager
-        data_manager = get_data_manager()
-        strategy_data = data_manager.get_data()
-        backtest_params = strategy_data.get('backtest_params', {})
-        max_positions = backtest_params.get('max_positions', 7)  # 설정값 사용, 기본값 7
+        # 설정에서 max_positions 가져오기 (storage.py 대신 config 사용)
+        backtest_params = self._get_backtest_params()
+        max_positions = backtest_params.get('max_positions', 7)
 
         available_slots = max_positions - len(current_holdings)
 
@@ -507,8 +542,9 @@ class BacktestEngine:
         portfolio_value = self.portfolio.calculate_portfolio_value(current_prices)
         max_position_value = portfolio_value * 0.3  # 종목당 최대 30%
 
-        # 종목당 투자 금액 계산
-        available_cash = self.portfolio.cash * 0.8  # 현금의 80% 사용
+        # 종목당 투자 금액 계산 (storage.py 대신 config 사용)
+        position_size_ratio = self._get_config_value('position_size_ratio', 0.8)
+        available_cash = self.portfolio.cash * position_size_ratio
         # 피라미딩 고려해서 더 많은 슬롯으로 나눔
         investment_per_stock = available_cash / max(available_slots + len(current_holdings), 1)
 
@@ -607,11 +643,17 @@ class BacktestEngine:
                 )
                 reset_holding = False  # 신규 매수는 리셋 불필요
 
-            # 현금 부족 체크
-            remaining_balance = self.portfolio.cash - total_invested - 2_000_000  # 200만원 안전자금
+            # 현금 부족 체크 (storage.py 대신 config 사용)
+            safety_cash_amount = self._get_config_value('safety_cash_amount', 1_000_000)
+            remaining_balance = self.portfolio.cash - total_invested - safety_cash_amount
+            
+            # 최소 투자금액 설정에서 가져오기
+            investment_amounts = self._get_config_value('investment_amounts', {})
+            min_investment = min(investment_amounts.values()) if investment_amounts else 300_000
+            
             if remaining_balance < investment_amount:
-                if remaining_balance < 300_000:  # 최소 투자금액
-                    print(f"   ⚠️ {ticker}: 최소 투자금액 부족")
+                if remaining_balance < min_investment:  # 설정 기반 최소 투자금액
+                    print(f"   ⚠️ {ticker}: 최소 투자금액 부족 (필요: {min_investment:,}원, 가능: {remaining_balance:,}원)")
                     continue
                 investment_amount = remaining_balance
 
@@ -677,6 +719,14 @@ class BacktestEngine:
     def _determine_investment_amount(self, candidate: Dict[str, Any],
                                      base_amount: float) -> float:
         """종합 점수 기반 투자 금액 결정"""
+        # config에서 investment_amounts 가져오기 (storage.py 대신)
+        investment_amounts = self._get_config_value('investment_amounts', {
+            '최고신뢰': base_amount * 1.3,
+            '고신뢰': base_amount * 1.1,
+            '중신뢰': base_amount * 1.0,
+            '저신뢰': base_amount * 0.8
+        })
+        
         # 뉴스 전략 사용 시 하이브리드 점수 사용, 아니면 기술적 점수만 사용
         if self.use_news_strategy:
             # hybrid_score가 있으면 사용, 없으면 combined_score나 normalized_score 사용
@@ -690,17 +740,15 @@ class BacktestEngine:
         if score > 1.0:
             score = candidate.get('technical_score', 0.5)
 
-        # 점수 기반 투자 금액 조정
-        if score >= 0.80:  # 매우 강한 신호: 1.3배
-            multiplier = 1.3
-        elif score >= 0.70:  # 강한 신호: 1.1배
-            multiplier = 1.1
-        elif score >= 0.60:  # 보통 신호: 1.0배
-            multiplier = 1.0
-        else:  # 약한 신호: 0.8배
-            multiplier = 0.8
-
-        return base_amount * multiplier
+        # 점수 기반 투자 금액 결정 (설정값 사용)
+        if score >= 0.80:  # 매우 강한 신호
+            return investment_amounts.get('최고신뢰', base_amount * 1.3)
+        elif score >= 0.70:  # 강한 신호
+            return investment_amounts.get('고신뢰', base_amount * 1.1)
+        elif score >= 0.65:  # 보통 신호
+            return investment_amounts.get('중신뢰', base_amount * 1.0)
+        else:  # 약한 신호
+            return investment_amounts.get('저신뢰', base_amount * 0.8)
 
     def _record_daily_portfolio(self, date_str: str, sell_results: Dict[str, Any],
                                 buy_results: Dict[str, Any]):
@@ -735,6 +783,12 @@ class BacktestEngine:
         """백테스트 종료 및 결과 반환"""
         print("\n" + "=" * 60)
         print("✅ 백테스팅 완료!")
+        
+        # 백테스트 임시 설정 제거
+        if hasattr(self.stock_selector.data_manager, '_temp_backtest_params'):
+            delattr(self.stock_selector.data_manager, '_temp_backtest_params')
+        if hasattr(self.stock_selector.data_manager, '_temp_config'):
+            delattr(self.stock_selector.data_manager, '_temp_config')
 
         # 성과 분석
         portfolio_history = self.portfolio.get_portfolio_history()

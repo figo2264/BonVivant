@@ -2,7 +2,8 @@
 # Cron 실행 대상 파일
 # 백테스트 엔진의 기술적 분석 기능 완전 적용
 # 설정값은 hanlyang_stock/config/strategy_settings.py에서 관리
-# ⚡ 수익률 극대화 설정 적용됨 (max_positions=7, min_technical_score=0.5, min_trade_amount=5억)
+# 💵 기본값: 소액 투자 설정 (small_capital)
+# 환경변수 STRATEGY_PRESET으로 변경 가능: 'conservative', 'balanced', 'aggressive', 'small_capital'
 
 import time
 from datetime import datetime
@@ -18,11 +19,20 @@ from hanlyang_stock.utils.notification import get_notifier
 def main():
     """메인 실행 함수 - 하이브리드 전략 (기술적 분석 + 뉴스 감정 분석)"""
     print("🚀 한량 주식 하이브리드 전략 시작! (기술적 분석 + 뉴스 감정 분석)")
-    print("💰 수익률 극대화 설정 적용됨")
-    print("📋 설정값 관리: hanlyang_stock/config/strategy_settings.py")
     
-    # 환경변수로 프리셋 선택 가능 (기본값: balanced)
-    preset = os.environ.get('STRATEGY_PRESET', 'balanced')
+    # 환경변수로 프리셋 선택 가능 (기본값: small_capital)
+    preset = os.environ.get('STRATEGY_PRESET', 'small_capital')
+    
+    # 프리셋별 메시지 출력
+    preset_messages = {
+        'small_capital': "💵 소액 투자 설정 적용됨 (100만원 기준)",
+        'conservative': "🛡️ 보수적 설정 적용됨",
+        'balanced': "⚖️ 균형잡힌 설정 적용됨", 
+        'aggressive': "🚀 공격적 설정 적용됨"
+    }
+    
+    print(preset_messages.get(preset, f"📋 {preset} 설정 적용됨"))
+    print("📋 설정값 관리: hanlyang_stock/config/strategy_settings.py")
     
     try:
         # 설정 초기화 (strategy_settings.py 사용)
@@ -34,12 +44,11 @@ def main():
         strategy_data = data_manager.get_data()
         
         print(f"✅ 모든 모듈 초기화 완료 (프리셋: {preset})")
-        print("💰 ⚡ 수익률 극대화 설정 적용 중 ⚡")
-        print("📊 주요 설정값:")
+        print(f"📊 주요 설정값:")
         print(f"   🎯 최대 선정 종목: {strategy_data.get('max_selections', 5)}개")
-        print(f"   🏢 최대 보유 종목: {strategy_data.get('backtest_params', {}).get('max_positions', 7)}개 (수익률 극대화)")
-        print(f"   💰 투자 비율: {strategy_data.get('position_size_ratio', 0.9)*100:.0f}% (수익률 극대화)")
-        print(f"   🛡️ 안전 자금: {strategy_data.get('safety_cash_amount', 1_000_000)/10_000:.0f}만원 (최소화)")
+        print(f"   🏢 최대 보유 종목: {strategy_data.get('backtest_params', {}).get('max_positions', 7)}개")
+        print(f"   💰 투자 비율: {strategy_data.get('position_size_ratio', 0.9)*100:.0f}%")
+        print(f"   🛡️ 안전 자금: {strategy_data.get('safety_cash_amount', 1_000_000)/10_000:.0f}만원")
         print(f"   🛑 손실 제한: {strategy_data.get('stop_loss_rate', -0.03)*100:.1f}%")
         print(f"   🤝 하이브리드 전략: {'활성화' if strategy_data.get('hybrid_strategy_enabled') else '비활성화'}")
         if strategy_data.get('hybrid_strategy_enabled'):
@@ -51,7 +60,7 @@ def main():
         min_trade_amt = strategy_data.get('backtest_params', {}).get('min_trade_amount', 
                                          strategy_data.get('enhanced_min_trade_amount', 500_000_000))
         print(f"      - 최소 거래대금: {min_trade_amt/100_000_000:.0f}억원")
-        print(f"      - 최소 기술점수: {strategy_data.get('backtest_params', {}).get('min_technical_score', 0.5)} (수익률 극대화)")
+        print(f"      %- 최소 기술점수: {strategy_data.get('backtest_params', {}).get('min_technical_score', 0.5)}")
         print(f"   🔍 추세 강도 필터: {'활성화 (4개 중 3개 충족)' if strategy_data.get('trend_strength_filter_enabled', True) else '비활성화'}")
         if strategy_data.get('trend_strength_filter_enabled', True):
             print(f"      - 양봉 크기: 0.5% 이상")
@@ -65,7 +74,7 @@ def main():
         # 투자 금액 설정 표시
         investment_amounts = strategy_data.get('investment_amounts', {})
         if investment_amounts:
-            print(f"   💸 기술점수별 투자금액 (수익률 극대화):")
+            print(f"   💸 기술점수별 투자금액:")
             print(f"      - 최고신뢰(0.8+): {investment_amounts.get('최고신뢰', 1_200_000)/10_000:.0f}만원")
             print(f"      - 고신뢰(0.7-0.8): {investment_amounts.get('고신뢰', 900_000)/10_000:.0f}만원")
             print(f"      - 중신뢰(0.65-0.7): {investment_amounts.get('중신뢰', 600_000)/10_000:.0f}만원")
@@ -94,7 +103,7 @@ def main():
         if current_time.hour == 8 and 30 <= current_time.minute <= 32 and not executed_today:
         # if True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
-                print("🌅 아침 매도 전략 실행 시작! (수익률 극대화 모드)")
+                print(f"🌅 아침 매도 전략 실행 시작! (프리셋: {preset})")
                 
                 # 최신 설정 다시 로드 (설정 파일 기반)
                 strategy_data = data_manager.get_data()
@@ -121,7 +130,7 @@ def main():
         elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
         # elif True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
-                print("🚀 오후 매수 전략 실행 시작! (수익률 극대화 모드)")
+                print(f"🚀 오후 매수 전략 실행 시작! (프리셋: {preset})")
                 
                 # 최신 설정 다시 로드 (설정 파일 기반)
                 strategy_data = data_manager.get_data()

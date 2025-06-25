@@ -210,11 +210,40 @@ BALANCED_CONFIG = BacktestConfig(
     )
 )
 
+# 소액 투자자를 위한 설정 (100만원)
+SMALL_CAPITAL_CONFIG = BacktestConfig(
+    initial_capital=1_000_000,           # 100만원
+    transaction_cost=0.003,
+    max_positions=5,                     # 적은 자본이므로 5개로 제한
+    stop_loss_rate=-0.03,                # 손실 제한 -3%
+    max_holding_days=5,
+    position_size_ratio=0.8,             # 80% 투자 (20만원은 예비)
+    safety_cash_amount=100_000,          # 안전 자금 10만원
+    min_technical_score=0.5,            # 중간 수준의 기술점수
+    min_close_days=7,
+    ma_period=20,
+    min_trade_amount=100_000_000,        # 유동성 있는 종목만
+    investment_amounts={
+        '최고신뢰': 220_000,             # 22만원 (점수 0.8+)
+        '고신뢰': 180_000,                # 18만원 (점수 0.7-0.8)
+        '중신뢰': 140_000,                # 14만원 (점수 0.65-0.7)
+        '저신뢰': 120_000                 # 12만원 (점수 0.65 미만)
+    },
+    optimized_params=OptimizedParameters(
+        min_close_days=7,
+        ma_period=20,
+        min_trade_amount=100_000_000,
+        min_technical_score=0.5,
+        max_positions=5
+    )
+)
+
 # 설정 프리셋
 CONFIG_PRESETS = {
     'conservative': CONSERVATIVE_CONFIG,
     'balanced': BALANCED_CONFIG,
-    'aggressive': AGGRESSIVE_CONFIG
+    'aggressive': AGGRESSIVE_CONFIG,
+    'small_capital': SMALL_CAPITAL_CONFIG
 }
 
 
@@ -223,7 +252,7 @@ def get_backtest_config(preset: str = 'balanced') -> BacktestConfig:
     백테스트 설정 반환
     
     Args:
-        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive')
+        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive', 'small_capital')
         
     Returns:
         BacktestConfig: 백테스트 설정

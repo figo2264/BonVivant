@@ -107,6 +107,248 @@ def test_news_collection_for_tickers(tickers: List[str], test_date: str = None, 
     return results
 
 
+def run_small_capital_news_backtest():
+    """소액 투자자를 위한 하이브리드 백테스트 (100만원)"""
+    print("💵 소액 투자 하이브리드 백테스트 실행 (100만원)")
+    print("=" * 60)
+    
+    # 1개월간 백테스트
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    
+    start_str = start_date.strftime('%Y-%m-%d')
+    end_str = end_date.strftime('%Y-%m-%d')
+    
+    print(f"📅 백테스트 기간: {start_str} ~ {end_str}")
+    
+    # 소액 투자 설정 사용
+    from hanlyang_stock.config.backtest_settings import get_backtest_config
+    config = get_backtest_config('small_capital')
+    
+    print("\n💵 소액 투자 설정:")
+    print(f"  초기 자본: {config.initial_capital:,}원")
+    print(f"  최대 보유 종목: {config.max_positions}")
+    print(f"  투자 비율: {config.position_size_ratio*100:.0f}%")
+    print(f"  안전 자금: {config.safety_cash_amount:,}원")
+    print(f"  손실 제한: {config.stop_loss_rate*100:.1f}%")
+    print(f"  최소 기술점수: {config.min_technical_score}")
+    print(f"  전략 비중: 기술적 분석 70% + 뉴스 감정 분석 30%")
+    
+    print("\n📊 투자 금액 설정:")
+    for level, amount in config.investment_amounts.items():
+        print(f"  {level}: {amount:,}원")
+    
+    # 설정을 딕셔너리로 변환 (BacktestEngine에 전달용)
+    config_dict = {
+        'initial_capital': config.initial_capital,
+        'transaction_cost': config.transaction_cost,
+        'max_positions': config.max_positions,
+        'position_size_ratio': config.position_size_ratio,
+        'safety_cash_amount': config.safety_cash_amount,
+        'stop_loss_rate': config.stop_loss_rate,
+        'investment_amounts': config.investment_amounts,
+        'backtest_params': config.get_optimal_params(),
+        'min_technical_score': config.min_technical_score,
+        'preset': 'small_capital'
+    }
+    
+    # 백테스트 엔진 생성 (설정 전달)
+    engine = BacktestEngine(
+        initial_capital=config.initial_capital,
+        transaction_cost=config.transaction_cost,
+        config=config_dict  # 설정을 명시적으로 전달
+    )
+    
+    optimal_params = config.get_optimal_params()
+    
+    print("\n📊 최적화 파라미터 적용:")
+    print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
+    print(f"   - 이동평균: {optimal_params['ma_period']}일")
+    print(f"   - 최소 거래대금: {optimal_params['min_trade_amount']/100_000_000:.0f}억원")
+    print(f"   - 최소 기술점수: {optimal_params['min_technical_score']}")
+    print(f"   - 최대 보유종목: {optimal_params['max_positions']}개")
+    
+    try:
+        # 하이브리드 백테스트 실행
+        results = engine.run_backtest(
+            start_str, end_str, 
+            news_analysis_enabled=True,  # 뉴스 분석 활성화
+            use_news_strategy=True       # 뉴스 전략 사용
+        )
+        
+        # 결과 저장
+        filename = engine.save_results("small_capital_news_backtest.json")
+        
+        print(f"\n✅ 소액 투자 하이브리드 백테스트 완료!")
+        print(f"💾 결과 파일: {filename}")
+        
+        # 주요 결과 출력
+        print(f"\n📊 백테스트 결과:")
+        print(f"   - 총 수익률: {results['total_return']*100:+.2f}%")
+        print(f"   - 거래 횟수: {results['total_trades']}회")
+        print(f"   - 승률: {results['win_rate']*100:.1f}%")
+        print(f"   - 최대 손실: {results['max_drawdown']*100:.1f}%")
+        
+        # 뉴스 분석 통계 출력
+        if 'trade_history' in results:
+            news_trades = [t for t in results['trade_history'] 
+                          if 'news_signal' in t.get('additional_info', {})]
+            if news_trades:
+                print(f"\n📰 뉴스 분석 통계:")
+                print(f"   - 뉴스 기반 거래: {len(news_trades)}건")
+                
+                # 감정별 통계
+                sentiments = {}
+                for trade in news_trades:
+                    sentiment = trade['additional_info']['news_signal'].get('sentiment', '중립')
+                    sentiments[sentiment] = sentiments.get(sentiment, 0) + 1
+                
+                for sentiment, count in sentiments.items():
+                    print(f"   - {sentiment}: {count}건")
+        
+        return results
+        
+    except Exception as e:
+        print(f"❌ 소액 투자 백테스트 실행 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def run_dynamic_capital_news_backtest():
+    """동적 투자금액 하이브리드 백테스트"""
+    print("💸 동적 투자금액 하이브리드 백테스트")
+    print("=" * 60)
+    
+    try:
+        # 투자금액 입력
+        capital_input = input("투자금액을 입력하세요 (원): ").strip()
+        capital = int(capital_input)
+        
+        # 동적 설정 생성 (run_modular_backtest.py의 create_capital_based_config 로직 재사용)
+        from hanlyang_stock.config.backtest_settings import create_custom_config
+        
+        # 투자금액에 따른 적정 파라미터 계산
+        if capital <= 1_000_000:
+            max_positions = 5
+            position_ratio = 0.8
+            safety_cash = capital * 0.1
+            investment_base = capital * 0.12  # 최고신뢰 기준
+            min_score = 0.7  # 소액이므로 높은 기준
+        elif capital <= 5_000_000:
+            max_positions = 7
+            position_ratio = 0.85
+            safety_cash = capital * 0.1
+            investment_base = capital * 0.15
+            min_score = 0.65
+        elif capital <= 10_000_000:
+            max_positions = 7
+            position_ratio = 0.9
+            safety_cash = capital * 0.1
+            investment_base = capital * 0.12
+            min_score = 0.6
+        else:
+            max_positions = 7
+            position_ratio = 0.9
+            safety_cash = min(1_000_000, capital * 0.05)
+            investment_base = capital * 0.1
+            min_score = 0.55
+        
+        config = create_custom_config(
+            initial_capital=capital,
+            max_positions=max_positions,
+            position_size_ratio=position_ratio,
+            safety_cash_amount=safety_cash,
+            min_technical_score=min_score,
+            investment_amounts={
+                '최고신뢰': investment_base,
+                '고신뢰': investment_base * 0.75,
+                '중신뢰': investment_base * 0.5,
+                '저신뢰': investment_base * 0.33
+            }
+        )
+        
+        print(f"\n💸 {capital:,}원에 최적화된 설정:")
+        print(f"  최대 보유 종목: {config.max_positions}")
+        print(f"  투자 비율: {config.position_size_ratio*100:.0f}%")
+        print(f"  안전 자금: {config.safety_cash_amount:,}원")
+        print(f"  최소 기술점수: {config.min_technical_score}")
+        print(f"  전략 비중: 기술적 분석 70% + 뉴스 감정 분석 30%")
+        print("\n투자 금액 배분:")
+        for level, amount in config.investment_amounts.items():
+            print(f"  {level}: {amount:,}원")
+        
+        # 설정을 딕셔너리로 변환 (BacktestEngine에 전달용)
+        config_dict = {
+            'initial_capital': config.initial_capital,
+            'transaction_cost': config.transaction_cost,
+            'max_positions': config.max_positions,
+            'position_size_ratio': config.position_size_ratio,
+            'safety_cash_amount': config.safety_cash_amount,
+            'stop_loss_rate': config.stop_loss_rate,
+            'investment_amounts': config.investment_amounts,
+            'backtest_params': config.get_optimal_params(),
+            'min_technical_score': config.min_technical_score
+        }
+        
+        # 백테스트 엔진 생성 (설정 전달)
+        engine = BacktestEngine(
+            initial_capital=config.initial_capital,
+            transaction_cost=config.transaction_cost,
+            config=config_dict  # 설정을 명시적으로 전달
+        )
+        
+        optimal_params = config.get_optimal_params()
+        
+        # 기간 설정
+        print("\n📅 백테스트 기간:")
+        period_choice = input("1) 1주일  2) 1개월  3) 3개월 (1/2/3): ").strip()
+        
+        end_date = datetime.now()
+        if period_choice == '1':
+            start_date = end_date - timedelta(days=7)
+        elif period_choice == '3':
+            start_date = end_date - timedelta(days=90)
+        else:
+            start_date = end_date - timedelta(days=30)
+        
+        start_str = start_date.strftime('%Y-%m-%d')
+        end_str = end_date.strftime('%Y-%m-%d')
+        
+        print(f"기간: {start_str} ~ {end_str}")
+        
+        # 백테스트 실행
+        results = engine.run_backtest(
+            start_str, end_str,
+            news_analysis_enabled=True,  # 뉴스 분석 활성화
+            use_news_strategy=True       # 뉴스 전략 사용
+        )
+        
+        # 결과 저장
+        filename = engine.save_results(f"dynamic_{capital}_news_backtest.json")
+        
+        print(f"\n✅ 동적 투자금액 하이브리드 백테스트 완료!")
+        print(f"💾 결과 파일: {filename}")
+        
+        # 주요 결과 출력
+        print(f"\n📊 백테스트 결과:")
+        print(f"   - 총 수익률: {results['total_return']*100:+.2f}%")
+        print(f"   - 거래 횟수: {results['total_trades']}회")
+        print(f"   - 승률: {results['win_rate']*100:.1f}%")
+        print(f"   - 최대 손실: {results['max_drawdown']*100:.1f}%")
+        
+        return results
+        
+    except ValueError:
+        print("❌ 잘못된 금액 형식입니다.")
+        return None
+    except Exception as e:
+        print(f"❌ 동적 백테스트 오류: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
 def run_profit_maximized_news_backtest():
     """수익률 극대화 뉴스 백테스트 전용 함수"""
     print("💰 수익률 극대화 하이브리드 백테스트 실행")
@@ -128,7 +370,7 @@ def run_profit_maximized_news_backtest():
         max_positions=7,                 # 7개 종목까지
         position_size_ratio=0.9,         # 90% 투자
         safety_cash_amount=1_000_000,    # 안전 자금 100만원
-        stop_loss_rate=-0.05,            # -5% 손실제한
+        stop_loss_rate=-0.03,            # -3% 손실제한
         min_technical_score=0.5,         # 기술점수 기준 완화
         investment_amounts={              # 투자 금액 증액
             '최고신뢰': 1_200_000,       # 120만원 (점수 0.8+)
@@ -151,31 +393,31 @@ def run_profit_maximized_news_backtest():
     for level, amount in config.investment_amounts.items():
         print(f"  {level}: {amount:,}원")
     
-    # 백테스트 엔진 생성
+    # 설정을 딕셔너리로 변환 (BacktestEngine에 전달용)
+    config_dict = {
+        'initial_capital': config.initial_capital,
+        'transaction_cost': config.transaction_cost,
+        'max_positions': config.max_positions,
+        'position_size_ratio': config.position_size_ratio,
+        'safety_cash_amount': config.safety_cash_amount,
+        'stop_loss_rate': config.stop_loss_rate,
+        'investment_amounts': config.investment_amounts,
+        'backtest_params': config.get_optimal_params(),
+        'min_technical_score': config.min_technical_score
+    }
+    
+    # 백테스트 엔진 생성 (설정 전달)
     engine = BacktestEngine(
         initial_capital=config.initial_capital,
-        transaction_cost=config.transaction_cost
+        transaction_cost=config.transaction_cost,
+        config=config_dict  # 설정을 명시적으로 전달
     )
-    
-    # 최적화된 백테스트 파라미터 설정
-    from hanlyang_stock.utils.storage import get_data_manager
-    data_manager = get_data_manager()
-    strategy_data = data_manager.get_data()
     
     # 커스텀 설정에서 최적화 파라미터 가져오기
     optimal_params = config.get_optimal_params()
     # 커스텀 설정 적용
     optimal_params['max_positions'] = config.max_positions
     optimal_params['min_technical_score'] = config.min_technical_score
-    
-    # 수익률 극대화를 위한 추가 설정
-    strategy_data['position_size_ratio'] = config.position_size_ratio
-    strategy_data['safety_cash_amount'] = config.safety_cash_amount
-    strategy_data['investment_amounts'] = config.investment_amounts
-    
-    # strategy_data에 백테스트 파라미터 추가
-    strategy_data['backtest_params'] = optimal_params
-    data_manager.save()
     
     print("\n📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
@@ -295,16 +537,25 @@ def run_news_backtest(test_period_days: int = 10, debug: bool = False, profit_ma
         # 기본 설정으로 백테스트 엔진 생성
         config = get_backtest_config('balanced')
     
+    # 설정을 딕셔너리로 변환 (BacktestEngine에 전달용)
+    config_dict = {
+        'initial_capital': config.initial_capital,
+        'transaction_cost': config.transaction_cost,
+        'max_positions': config.max_positions,
+        'position_size_ratio': config.position_size_ratio,
+        'safety_cash_amount': config.safety_cash_amount,
+        'stop_loss_rate': config.stop_loss_rate,
+        'investment_amounts': config.investment_amounts,
+        'backtest_params': config.get_optimal_params(),
+        'min_technical_score': config.min_technical_score
+    }
+    
     engine = BacktestEngine(
         initial_capital=config.initial_capital,
         transaction_cost=config.transaction_cost,
-        debug=debug  # 디버그 모드 전달
+        debug=debug,  # 디버그 모드 전달
+        config=config_dict  # 설정을 명시적으로 전달
     )
-    
-    # 최적화된 백테스트 파라미터 설정
-    from hanlyang_stock.utils.storage import get_data_manager
-    data_manager = get_data_manager()
-    strategy_data = data_manager.get_data()
     
     # 설정에서 최적화 파라미터 가져오기
     optimal_params = config.get_optimal_params()
@@ -313,15 +564,6 @@ def run_news_backtest(test_period_days: int = 10, debug: bool = False, profit_ma
         # 커스텀 설정 적용
         optimal_params['max_positions'] = config.max_positions
         optimal_params['min_technical_score'] = config.min_technical_score
-        
-        # 수익률 극대화를 위한 추가 설정
-        strategy_data['position_size_ratio'] = config.position_size_ratio
-        strategy_data['safety_cash_amount'] = config.safety_cash_amount
-        strategy_data['investment_amounts'] = config.investment_amounts
-    
-    # strategy_data에 백테스트 파라미터 추가
-    strategy_data['backtest_params'] = optimal_params
-    data_manager.save()
     
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
@@ -432,10 +674,18 @@ def compare_strategies(test_period_days: int = 30, profit_maximized: bool = Fals
     else:
         config = get_backtest_config('balanced')
     
-    # 최적화된 백테스트 파라미터 설정
-    from hanlyang_stock.utils.storage import get_data_manager
-    data_manager = get_data_manager()
-    strategy_data = data_manager.get_data()
+    # 설정을 딕셔너리로 변환 (BacktestEngine에 전달용)
+    config_dict = {
+        'initial_capital': config.initial_capital,
+        'transaction_cost': config.transaction_cost,
+        'max_positions': config.max_positions,
+        'position_size_ratio': config.position_size_ratio,
+        'safety_cash_amount': config.safety_cash_amount,
+        'stop_loss_rate': config.stop_loss_rate,
+        'investment_amounts': config.investment_amounts,
+        'backtest_params': config.get_optimal_params(),
+        'min_technical_score': config.min_technical_score
+    }
     
     # 설정에서 최적화 파라미터 가져오기
     optimal_params = config.get_optimal_params()
@@ -444,15 +694,6 @@ def compare_strategies(test_period_days: int = 30, profit_maximized: bool = Fals
         # 커스텀 설정 적용
         optimal_params['max_positions'] = config.max_positions
         optimal_params['min_technical_score'] = config.min_technical_score
-        
-        # 수익률 극대화를 위한 추가 설정
-        strategy_data['position_size_ratio'] = config.position_size_ratio
-        strategy_data['safety_cash_amount'] = config.safety_cash_amount
-        strategy_data['investment_amounts'] = config.investment_amounts
-    
-    # strategy_data에 백테스트 파라미터 추가
-    strategy_data['backtest_params'] = optimal_params
-    data_manager.save()
     
     print("📊 최적화 파라미터 적용:")
     print(f"   - 최저점 기간: {optimal_params['min_close_days']}일")
@@ -473,7 +714,11 @@ def compare_strategies(test_period_days: int = 30, profit_maximized: bool = Fals
     
     # 1. 기술적 분석만
     print("\n📈 기술적 분석 전략 실행...")
-    tech_engine = BacktestEngine(config.initial_capital, config.transaction_cost)
+    tech_engine = BacktestEngine(
+        config.initial_capital, 
+        config.transaction_cost,
+        config=config_dict  # 설정 전달
+    )
     
     try:
         tech_results = tech_engine.run_backtest(start_str, end_str, news_analysis_enabled=False)
@@ -488,7 +733,11 @@ def compare_strategies(test_period_days: int = 30, profit_maximized: bool = Fals
     
     # 2. 하이브리드 전략 (기술적 + 뉴스 감정 분석)
     print("\n📰 하이브리드 전략 실행...")
-    news_engine = BacktestEngine(config.initial_capital, config.transaction_cost)
+    news_engine = BacktestEngine(
+        config.initial_capital, 
+        config.transaction_cost,
+        config=config_dict  # 설정 전달
+    )
     
     try:
         news_results = news_engine.run_backtest(
@@ -566,10 +815,12 @@ def main():
         print("6) 전략 비교 (커스텀 기간, 최소 10일)")
         print("7) 💰 수익률 극대화 하이브리드 백테스트 (NEW)")
         print("8) 💰 수익률 극대화 전략 비교 (NEW)")
-        print("9) 종료")
+        print("9) 💵 소액 투자 하이브리드 백테스트 (100만원)")
+        print("10) 💸 동적 투자금액 하이브리드 백테스트")
+        print("11) 종료")
         
         try:
-            choice = input("\n선택 (1-9): ").strip()
+            choice = input("\n선택 (1-11): ").strip()
             
             if choice == '1':
                 # 뉴스 수집 테스트
@@ -635,11 +886,19 @@ def main():
                     print("올바른 숫자를 입력하세요.")
                     
             elif choice == '9':
+                # 소액 투자 하이브리드 백테스트
+                run_small_capital_news_backtest()
+                    
+            elif choice == '10':
+                # 동적 투자금액 하이브리드 백테스트
+                run_dynamic_capital_news_backtest()
+                    
+            elif choice == '11':
                 print("프로그램을 종료합니다.")
                 break
                 
             else:
-                print("잘못된 선택입니다. 1-9 중에서 선택해주세요.")
+                print("잘못된 선택입니다. 1-11 중에서 선택해주세요.")
                 
         except KeyboardInterrupt:
             print("\n프로그램을 종료합니다.")

@@ -3,6 +3,7 @@ Stock selection strategies
 Enhanced with technical analysis features
 """
 
+import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Set
 from ..data.fetcher import get_data_fetcher
@@ -20,9 +21,14 @@ except ImportError:
 class StockSelector:
     """종목 선정 클래스 - 기술적 분석 기반"""
     
-    def __init__(self):
+    def __init__(self, preset: str = None):
         self.data_fetcher = get_data_fetcher()
-        self.data_manager = get_data_manager()
+        # 프리셋이 지정되지 않으면 환경변수 확인
+        if preset is None:
+            preset = os.environ.get('STRATEGY_PRESET')
+        
+        # 프리셋에 따른 data_manager 생성
+        self.data_manager = get_data_manager(preset=preset)
         self.backtest_mode = False  # 백테스트 모드 플래그
         self.current_backtest_date = None  # 백테스트 현재 날짜
         
@@ -317,8 +323,14 @@ class StockSelector:
         tickers = self.exclude_suspended_stocks(tickers, current_date)
         
         # 2. 시가총액 필터
-        strategy_data = self.data_manager.get_data()
-        min_market_cap = strategy_data.get('min_market_cap', 200_000_000_000)  # 기본 2천억
+        if self.backtest_mode and hasattr(self.data_manager, '_temp_config'):
+            # 백테스트 설정 사용
+            min_market_cap = self.data_manager._temp_config.get('min_market_cap', 200_000_000_000)
+        else:
+            # 기존 방식
+            strategy_data = self.data_manager.get_data()
+            min_market_cap = strategy_data.get('min_market_cap', 200_000_000_000)  # 기본 2천억
+        
         tickers = self.apply_market_cap_filter(tickers, current_date, min_market_cap)
         
         print(f"\n✅ [1단계] 기본 품질 필터 완료: {len(tickers)}개 종목 통과")
@@ -515,16 +527,36 @@ class StockSelector:
             List[Dict]: 선정된 종목 정보 리스트
         """
         try:
-            # 백테스트 최적화 파라미터 로드
-            strategy_data = self.data_manager.get_data()
-            backtest_params = strategy_data.get('backtest_params', {})
-            technical_params = strategy_data.get('technical_params', {})
-            
-            # 파라미터 설정 (technical_params 우선, 그 다음 백테스트 파라미터, 없으면 기본값)
-            min_close_days = technical_params.get('min_close_days', backtest_params.get('min_close_days', 7))  # 최적화: 7일
-            ma_period = technical_params.get('ma_period', backtest_params.get('ma_period', 20))
-            min_trade_amount = strategy_data.get('enhanced_min_trade_amount', backtest_params.get('min_trade_amount', 100_000_000))  # 최적화: 1억
-            min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', 0.65))  # 최적화: 0.7
+            # 백테스트 모드에서 임시 파라미터 확인
+            if self.backtest_mode and hasattr(self.data_manager, '_temp_backtest_params'):
+                # 백테스트 엔진에서 주입한 파라미터 사용
+                backtest_params = self.data_manager._temp_backtest_params
+                temp_config = getattr(self.data_manager, '_temp_config', {})
+                
+                # 백테스트 설정에서 파라미터 가져오기
+                min_close_days = backtest_params.get('min_close_days', 7)
+                ma_period = backtest_params.get('ma_period', 20)
+                min_trade_amount = backtest_params.get('min_trade_amount', 100_000_000)
+                min_technical_score = backtest_params.get('min_technical_score', 0.6)
+                
+                # temp_config에서 추가 설정 가져오기
+                min_market_cap = temp_config.get('min_market_cap', 200_000_000_000)
+                trend_strength_filter_enabled = temp_config.get('trend_strength_filter_enabled', True)
+            else:
+                # 기존 방식: strategy_data에서 파라미터 로드
+                strategy_data = self.data_manager.get_data()
+                backtest_params = strategy_data.get('backtest_params', {})
+                technical_params = strategy_data.get('technical_params', {})
+                
+                # 파라미터 설정 (technical_params 우선, 그 다음 백테스트 파라미터, 없으면 기본값)
+                min_close_days = technical_params.get('min_close_days', backtest_params.get('min_close_days', 7))
+                ma_period = technical_params.get('ma_period', backtest_params.get('ma_period', 20))
+                min_trade_amount = strategy_data.get('enhanced_min_trade_amount', backtest_params.get('min_trade_amount', 100_000_000))
+                min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', 0.65))
+                
+                # 추가 설정
+                min_market_cap = strategy_data.get('min_market_cap', 200_000_000_000)
+                trend_strength_filter_enabled = strategy_data.get('trend_strength_filter_enabled', True)
             
             # 백테스트 모드일 때 날짜 설정
             if self.backtest_mode and current_date:
@@ -644,8 +676,11 @@ class StockSelector:
                 return []
             
             # 🔍 추세 강도 필터 적용 (설정에서 활성화된 경우)
-            strategy_data = self.data_manager.get_data()
-            trend_strength_filter_enabled = strategy_data.get('trend_strength_filter_enabled', True)
+            # 백테스트 모드에서는 위에서 설정한 trend_strength_filter_enabled 사용
+            # 실시간 모드에서는 strategy_data에서 다시 가져오기
+            if not self.backtest_mode or not hasattr(self.data_manager, '_temp_config'):
+                strategy_data = self.data_manager.get_data()
+                trend_strength_filter_enabled = strategy_data.get('trend_strength_filter_enabled', True)
             
             if trend_strength_filter_enabled:
                 print("\n🔍 [추세 강도 필터] 적용 시작...")
@@ -800,14 +835,23 @@ class StockSelector:
         # 기술적 점수로 정렬 (이미 정렬되어 있지만 확실히 함)
         entry_tickers.sort(key=lambda x: x['combined_score'], reverse=True)
         
-        # 설정 로드
-        strategy_data = self.data_manager.get_data()
-        backtest_params = strategy_data.get('backtest_params', {})
-        technical_params = strategy_data.get('technical_params', {})
-        
-        # 파라미터 설정 (technical_params 우선, 그 다음 백테스트 파라미터, 없으면 기본값)
-        max_selections = backtest_params.get('max_positions', strategy_data.get('max_selections', 3))
-        min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', strategy_data.get('min_technical_score', 0.7)))  # 최적화: 0.7
+        # 백테스트 모드에서 임시 파라미터 확인
+        if self.backtest_mode and hasattr(self.data_manager, '_temp_backtest_params'):
+            # 백테스트 파라미터 사용
+            backtest_params = self.data_manager._temp_backtest_params
+            temp_config = getattr(self.data_manager, '_temp_config', {})
+            
+            max_selections = backtest_params.get('max_positions', 5)
+            min_technical_score = backtest_params.get('min_technical_score', 0.6)
+        else:
+            # 기존 방식: 설정 로드
+            strategy_data = self.data_manager.get_data()
+            backtest_params = strategy_data.get('backtest_params', {})
+            technical_params = strategy_data.get('technical_params', {})
+            
+            # 파라미터 설정 (technical_params 우선, 그 다음 백테스트 파라미터, 없으면 기본값)
+            max_selections = backtest_params.get('max_positions', strategy_data.get('max_selections', 3))
+            min_technical_score = technical_params.get('min_technical_score', backtest_params.get('min_technical_score', strategy_data.get('min_technical_score', 0.7)))
         
         # 기준을 만족하는 종목만 선정
         final_selection = []
@@ -894,23 +938,28 @@ class StockSelector:
         return summary
 
 
-# 전역 스톡 셀렉터 (싱글톤 패턴)
-_selector_instance = None
+# 전역 스톡 셀렉터 (프리셋별 싱글톤 패턴)
+_selector_instances = {}
 
-def get_stock_selector() -> StockSelector:
-    """스톡 셀렉터 인스턴스 반환 (싱글톤)"""
-    global _selector_instance
-    if _selector_instance is None:
-        _selector_instance = StockSelector()
-    return _selector_instance
+def get_stock_selector(preset: str = None) -> StockSelector:
+    """스톡 셀렉터 인스턴스 반환 (프리셋별 싱글톤)"""
+    global _selector_instances
+    
+    # 프리셋이 없으면 기본 인스턴스
+    key = preset or 'default'
+    
+    if key not in _selector_instances:
+        _selector_instances[key] = StockSelector(preset=preset)
+    
+    return _selector_instances[key]
 
 # 편의 함수들
-def enhanced_stock_selection(current_date=None) -> List[Dict[str, Any]]:
+def enhanced_stock_selection(current_date=None, preset: str = None) -> List[Dict[str, Any]]:
     """기술적 분석 기반 종목 선정"""
-    selector = get_stock_selector()
+    selector = get_stock_selector(preset=preset)
     return selector.enhanced_stock_selection(current_date)
 
-def select_stocks_for_buy(current_date=None) -> List[str]:
+def select_stocks_for_buy(current_date=None, preset: str = None) -> List[str]:
     """매수용 종목 선정 (전체 워크플로우)"""
-    selector = get_stock_selector()
+    selector = get_stock_selector(preset=preset)
     return selector.select_stocks_for_buy(current_date)

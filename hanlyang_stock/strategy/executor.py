@@ -3,6 +3,7 @@ Strategy execution modules for buy and sell operations
 Enhanced with complete data validation and stop-loss logic from backtest_engine
 """
 
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 import pandas as pd
@@ -419,7 +420,11 @@ class BuyExecutor:
         self.data_fetcher = get_data_fetcher()
         self.data_manager = get_data_manager()
         self.notifier = get_notifier()
-        self.stock_selector = get_stock_selector()
+        
+        # 환경변수에서 프리셋 확인
+        preset = os.environ.get('STRATEGY_PRESET')
+        self.stock_selector = get_stock_selector(preset=preset)
+        
         self.ht = get_hantustock()
         
         # 하이브리드 전략 설정
@@ -758,8 +763,9 @@ class BuyExecutor:
         
         print(f"   ✅ 검증 통과: {len(validated_candidates)}개 종목")
         
-        # 종목당 투자 금액 계산 (현금의 80%를 사용 가능한 슬롯으로 나누기)
-        available_cash = current_balance * 0.8
+        # 종목당 투자 금액 계산 (설정에서 투자 비율 가져오기)
+        position_size_ratio = strategy_data.get('position_size_ratio', 0.8)
+        available_cash = current_balance * position_size_ratio
         investment_per_stock = available_cash / available_slots if available_slots > 0 else 0
         
         print(f"   사용 가능 현금: {available_cash:,.0f}원")
@@ -811,12 +817,13 @@ class BuyExecutor:
                     print(f"   🔄 피라미딩 투자금액: {investment_info['amount']:,}원 ({pyramiding_ratio*100:.0f}% 적용)")
                 
                 # 투자 가능 금액 확인
-                remaining_balance = current_balance - total_invested - 2_000_000  # 200만원 안전자금
+                safety_cash_amount = strategy_data.get('safety_cash_amount', 1_000_000)
+                remaining_balance = current_balance - total_invested - safety_cash_amount  # 설정에서 안전자금 가져오기
                 
                 print(f"💹 {ticker} 투자 계산:")
                 print(f"   💰 계좌 잔고: {current_balance:,}원")
                 print(f"   📊 기투자액: {total_invested:,}원") 
-                print(f"   🛡️ 안전자금: 2,000,000원")
+                print(f"   🛡️ 안전자금: {safety_cash_amount:,}원")
                 print(f"   💵 투자가능: {remaining_balance:,}원")
                 print(f"   🎯 계획투자: {investment_info['amount']:,}원")
                 
@@ -834,8 +841,12 @@ class BuyExecutor:
                     continue
                 
                 if remaining_balance < investment_info['amount']:
-                    if remaining_balance < 300_000:  # 최소 투자금액
-                        print(f"⚠️ {ticker}: 최소 투자금액 부족 (가능: {remaining_balance:,}원 < 최소: 300,000원)")
+                    # 최소 투자금액 설정에서 가져오기
+                    investment_amounts = strategy_data.get('investment_amounts', {})
+                    min_investment = min(investment_amounts.values()) if investment_amounts else 300_000
+                    
+                    if remaining_balance < min_investment:  # 설정 기반 최소 투자금액
+                        print(f"⚠️ {ticker}: 최소 투자금액 부족 (가능: {remaining_balance:,}원 < 최소: {min_investment:,}원)")
                         continue
                     print(f"   📉 투자금액 조정: {investment_info['amount']:,}원 → {remaining_balance:,}원")
                     investment_info['amount'] = remaining_balance
@@ -1051,6 +1062,14 @@ class BuyExecutor:
     def _determine_investment_amount(self, ticker: str, strategy_data: Dict[str, Any], 
                                     candidate: Any = None) -> Dict[str, Any]:
         """투자 금액 결정 (하이브리드 전략 지원)"""
+        # 설정에서 투자금액 가져오기
+        investment_amounts = strategy_data.get('investment_amounts', {
+            '최고신뢰': 800_000,
+            '고신뢰': 600_000,
+            '중신뢰': 400_000,
+            '저신뢰': 300_000
+        })
+        
         # 하이브리드 전략인 경우
         if self.hybrid_strategy_enabled and isinstance(candidate, dict) and 'combined_score' in candidate:
             # normalized_score가 있으면 사용, 없으면 combined_score 사용
@@ -1060,18 +1079,18 @@ class BuyExecutor:
             if score > 1.0:
                 score = candidate.get('technical_score', 0.7)
             
-            # 종합 점수 기반 투자 금액 계산
-            if score >= 0.80:           # 최고신뢰: 80만원
-                investment_amount = 800_000    
+            # 종합 점수 기반 투자 금액 계산 (설정값 사용)
+            if score >= 0.80:           # 최고신뢰
+                investment_amount = investment_amounts.get('최고신뢰', 800_000)
                 confidence_level = "최고신뢰"
-            elif score >= 0.70:         # 고신뢰: 60만원
-                investment_amount = 600_000    
+            elif score >= 0.70:         # 고신뢰
+                investment_amount = investment_amounts.get('고신뢰', 600_000)
                 confidence_level = "고신뢰"
-            elif score >= 0.65:         # 중신뢰: 40만원
-                investment_amount = 400_000    
+            elif score >= 0.65:         # 중신뢰
+                investment_amount = investment_amounts.get('중신뢰', 400_000)
                 confidence_level = "중신뢰"
-            else:                       # 저신뢰: 30만원
-                investment_amount = 300_000      
+            else:                       # 저신뢰
+                investment_amount = investment_amounts.get('저신뢰', 300_000)
                 confidence_level = "저신뢰"
             
             return {
@@ -1104,18 +1123,18 @@ class BuyExecutor:
                 # 신규 매수인 경우
                 technical_score = get_technical_score(ticker)
             
-            # 기술적 분석 기반 투자 금액 계산
-            if technical_score >= 0.80:           # 최고신뢰: 80만원
-                investment_amount = 800_000    
+            # 기술적 분석 기반 투자 금액 계산 (설정값 사용)
+            if technical_score >= 0.80:           # 최고신뢰
+                investment_amount = investment_amounts.get('최고신뢰', 800_000)
                 confidence_level = "최고신뢰"
-            elif technical_score >= 0.70:         # 고신뢰: 60만원
-                investment_amount = 600_000    
+            elif technical_score >= 0.70:         # 고신뢰
+                investment_amount = investment_amounts.get('고신뢰', 600_000)
                 confidence_level = "고신뢰"
-            elif technical_score >= 0.65:         # 중신뢰: 40만원
-                investment_amount = 400_000    
+            elif technical_score >= 0.65:         # 중신뢰
+                investment_amount = investment_amounts.get('중신뢰', 400_000)
                 confidence_level = "중신뢰"
-            else:                          # 저신뢰: 30만원
-                investment_amount = 300_000      
+            else:                                 # 저신뢰
+                investment_amount = investment_amounts.get('저신뢰', 300_000)
                 confidence_level = "저신뢰"
             
             return {

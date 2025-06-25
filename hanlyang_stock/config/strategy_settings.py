@@ -311,6 +311,9 @@ BALANCED_STRATEGY = StrategyConfig(
     max_selections=5,
     position_size_ratio=0.9,
     safety_cash_amount=1_000_000,
+    technical_params=TechnicalParameters(
+        min_technical_score=0.55  # backtest_params와 일치시킴
+    ),
     investment_amounts={
         '최고신뢰': 1_200_000,
         '고신뢰': 900_000,
@@ -326,11 +329,50 @@ BALANCED_STRATEGY = StrategyConfig(
     }
 )
 
+# 소액 투자자를 위한 전략 설정 (100만원)
+SMALL_CAPITAL_STRATEGY = StrategyConfig(
+    max_selections=5,                       # 적은 자본이므로 5개로 제한
+    stop_loss_rate=-0.03,                   # 손실 제한 -3%
+    max_holding_days={'basic': 5, 'hybrid': 10},
+    position_size_ratio=0.8,                # 80% 투자 (20만원은 예비)
+    safety_cash_amount=100_000,             # 안전 자금 10만원
+    profit_threshold=0.005,                 # 0.5% 이상 수익
+    technical_params=TechnicalParameters(
+        min_technical_score=0.5,           # 중간 수준
+        min_close_days=7,
+        ma_period=20
+    ),
+    quality_filter=QualityFilterParameters(
+        min_market_cap=50_000_000_000,      # 500억 (소액이므로 시총 기준 완화)
+        min_trade_amount=100_000_000,       # 1억 (유동성 있는 종목만)
+        trend_strength_filter_enabled=True
+    ),
+    pyramiding=PyramidingParameters(
+        enabled=True,                       # 피라미딩 활성화
+        max_position=0.2,                   # 종목당 최대 20%
+        investment_ratio=0.3                # 추가 매수는 30%만
+    ),
+    investment_amounts={
+        '최고신뢰': 220_000,               # 20만원 (점수 0.8+)
+        '고신뢰': 180_000,                 # 15만원 (점수 0.7-0.8)
+        '중신뢰': 140_000,                 # 12만원 (점수 0.65-0.7)
+        '저신뢰': 120_000                   # 8만원 (점수 0.65 미만)
+    },
+    backtest_params={
+        'min_close_days': 7,
+        'ma_period': 20,
+        'min_trade_amount': 100_000_000,    # 1억
+        'min_technical_score': 0.5,         # backtest_settings와 일치시킴
+        'max_positions': 5
+    }
+)
+
 # 설정 프리셋
 STRATEGY_PRESETS = {
     'conservative': CONSERVATIVE_STRATEGY,
     'balanced': BALANCED_STRATEGY,
-    'aggressive': AGGRESSIVE_STRATEGY
+    'aggressive': AGGRESSIVE_STRATEGY,
+    'small_capital': SMALL_CAPITAL_STRATEGY
 }
 
 
@@ -339,7 +381,7 @@ def get_strategy_config(preset: str = 'balanced') -> StrategyConfig:
     전략 설정 반환
     
     Args:
-        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive')
+        preset: 설정 프리셋 ('conservative', 'balanced', 'aggressive', 'small_capital')
         
     Returns:
         StrategyConfig: 전략 설정
