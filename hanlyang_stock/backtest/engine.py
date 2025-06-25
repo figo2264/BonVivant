@@ -99,10 +99,7 @@ class BacktestEngine:
 
             print(f"\n📅 {date_str} 처리 중... ({'월화수목금'[weekday]}요일)")
 
-            # 1. 보유 기간 업데이트
-            self.portfolio.update_holding_periods()
-
-            # 2. 매도 전략 실행
+            # 1. 매도 전략 실행
             sell_results = self._execute_sell_strategy(date_str)
 
             # 3. 매수 전략 실행
@@ -127,7 +124,12 @@ class BacktestEngine:
         total_profit = 0
 
         for ticker, holding in current_holdings.items():
-            holding_days = self.portfolio.holding_period.get(ticker, 0)
+            # 실제 보유 기간 계산 (날짜 차이)
+            buy_date_str = holding.get('buy_date', current_date)
+            buy_date = pd.to_datetime(buy_date_str)
+            current_date_pd = pd.to_datetime(current_date)
+            holding_days = (current_date_pd - buy_date).days
+            
             should_sell = False
             sell_reason = ""
 
@@ -136,10 +138,10 @@ class BacktestEngine:
                 print(f"   ❌ {ticker}: 데이터 검증 실패 - 매도 스킵")
                 continue
 
-            # 1. 손실 제한 체크 (최우선)
+            # 1. 손실 제한 체크 (최우선) - 3%로 변경
             buy_price = holding.get('buy_price', 0)
             stop_loss_sell, current_price, loss_rate = self.data_validator.check_stop_loss(
-                ticker, buy_price, current_date, stop_loss_rate=-0.05
+                ticker, buy_price, current_date, stop_loss_rate=-0.03
             )
 
             if stop_loss_sell:
@@ -161,17 +163,17 @@ class BacktestEngine:
                     if reset_count >= max_resets:
                         should_sell = True
                         sell_reason = f"최대 리셋 횟수({max_resets}회) 도달"
-                        print(f"   → {ticker}: 최대 리셋 횟수 도달로 매도")
+                        print(f"   → {ticker}: 최대 리셋 횟수 도달로 매도 ({holding_days}일 보유)")
                     else:
                         should_sell = True
                         sell_reason = f"뉴스 전략 목표 기간({planned_holding_days}일) 달성"
-                        print(f"   → {ticker}: 뉴스 전략 목표 기간 달성으로 매도")
+                        print(f"   → {ticker}: 뉴스 전략 목표 기간 달성으로 매도 ({holding_days}일 보유)")
             else:
                 # 기본 전략인 경우 (3일 룰)
                 if holding_days >= 3:
                     should_sell = True
                     sell_reason = f"기본 보유기간(3일) 달성"
-                    print(f"   → {ticker}: 3일 이상 보유로 매도")
+                    print(f"   → {ticker}: 3일 이상 보유로 매도 ({holding_days}일 보유)")
 
             # 3. 최대 보유기간 체크 (전략별 차별화)
             if not should_sell:  # 아직 매도 결정이 안 된 경우만
@@ -179,7 +181,7 @@ class BacktestEngine:
                 if holding_days >= max_holding_days:
                     should_sell = True
                     sell_reason = f"최대 보유기간({max_holding_days}일) 도달"
-                    print(f"   → {ticker}: 최대 보유기간 도달로 매도")
+                    print(f"   → {ticker}: 최대 보유기간 도달로 매도 ({holding_days}일 보유)")
 
             # 매도 실행
             if should_sell:
@@ -231,8 +233,12 @@ class BacktestEngine:
                     # 회사명 조회
                     company_name = self.news_selector._get_company_name(ticker)
 
-                    # 보유 기간과 진입 가격 정보
-                    holding_days = self.portfolio.holding_period.get(ticker, 0)
+                    # 보유 기간 계산
+                    buy_date_str = holding.get('buy_date', current_date)
+                    buy_date = pd.to_datetime(buy_date_str)
+                    current_date_pd = pd.to_datetime(current_date)
+                    holding_days = (current_date_pd - buy_date).days
+                    
                     entry_price = holding.get('buy_price', None)
 
                     # 기술적 점수 재계산 (보유 기간과 진입 가격 고려)
@@ -269,7 +275,7 @@ class BacktestEngine:
 
                         # 피라미딩 후보로 추가
                         if combined_score >= 0.75:  # 피라미딩 최소 점수
-                            print(f"   → {ticker}: 피라미딩 후보 추가 (점수: {combined_score * 100:.1f}%)")
+                            print(f"   → {ticker}: 피라미딩 후보 추가 (하이브리드 점수: {combined_score * 100:.1f}%)")
                             candidates.append({
                                 'ticker': ticker,
                                 'technical_score': technical_score,
@@ -277,6 +283,7 @@ class BacktestEngine:
                                 'news_sentiment': news_sentiment,
                                 'combined_score': combined_score,
                                 'normalized_score': combined_score,  # 정규화된 점수 추가
+                                'hybrid_score': combined_score,  # 명확한 명칭 추가
                                 'is_holding': True,
                                 'holding_days': holding_days,
                                 'news_signal': {
@@ -403,6 +410,8 @@ class BacktestEngine:
                             )
                             # 정규화된 점수 추가
                             candidate['normalized_score'] = candidate['combined_score']
+                            # 명확한 명칭 추가
+                            candidate['hybrid_score'] = candidate['combined_score']
 
                             print(f"      ✅ 뉴스 감정: {candidate['news_sentiment']}, "
                                   f"신뢰도: {candidate['news_score'] * 100:.1f}%")
@@ -428,6 +437,7 @@ class BacktestEngine:
                             candidate['news_sentiment'] = '중립'
                             candidate['combined_score'] = candidate['technical_score']
                             candidate['normalized_score'] = candidate['technical_score']  # 정규화된 점수
+                            candidate['hybrid_score'] = candidate['technical_score']  # 기술적 점수만 사용
 
                         enhanced_candidates.append(candidate)
 
@@ -438,6 +448,7 @@ class BacktestEngine:
                         candidate['news_sentiment'] = '중립'
                         candidate['combined_score'] = candidate['technical_score']
                         candidate['normalized_score'] = candidate['technical_score']  # 정규화된 점수
+                        candidate['hybrid_score'] = candidate['technical_score']  # 기술적 점수만 사용
                         enhanced_candidates.append(candidate)
 
                 # 종합 점수 기준으로 정렬
@@ -529,16 +540,24 @@ class BacktestEngine:
 
                 # 피라미딩 최소 점수 체크 (80% 이상으로 상향)
                 min_pyramiding_score = 0.80  # 기존 0.75에서 0.80으로 상향
-                # normalized_score가 있으면 사용, 없으면 combined_score 또는 technical_score 사용
-                score = candidate.get('normalized_score',
-                                      candidate.get('combined_score', candidate.get('technical_score', 0)))
-
+                
+                # 하이브리드 전략인 경우
+                if self.use_news_strategy:
+                    # hybrid_score가 있으면 사용, 없으면 combined_score 사용
+                    score = candidate.get('hybrid_score', 
+                                         candidate.get('normalized_score',
+                                                      candidate.get('combined_score', 0)))
+                else:
+                    # 기술적 전략인 경우
+                    score = candidate.get('technical_score', 0)
+                
                 # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
                 if score > 1.0:
                     score = candidate.get('technical_score', 0)
 
                 if score < min_pyramiding_score:
-                    print(f"   {ticker}: 보유 중 - 피라미딩 점수 미달 ({score * 100:.1f}% < {min_pyramiding_score * 100}%)")
+                    score_type = "하이브리드" if self.use_news_strategy else "기술적"
+                    print(f"   {ticker}: 보유 중 - 피라미딩 {score_type} 점수 미달 ({score * 100:.1f}% < {min_pyramiding_score * 100}%)")
                     continue
 
                 # 피라미딩 횟수 제한 확인
@@ -562,9 +581,19 @@ class BacktestEngine:
                 investment_amount = min(investment_per_stock * 0.5, remaining_allowed)
 
                 # 보유 기간 리셋 여부 (80% 이상일 때)
-                reset_holding = score >= 0.80
+                if self.use_news_strategy:
+                    # 하이브리드 점수 사용
+                    reset_score = candidate.get('hybrid_score',
+                                               candidate.get('normalized_score',
+                                                            candidate.get('combined_score', 0)))
+                else:
+                    # 기술적 점수 사용
+                    reset_score = candidate.get('technical_score', 0)
+                    
+                reset_holding = reset_score >= 0.80
                 if reset_holding:
-                    print(f"   → 높은 점수로 보유기간 리셋 예정")
+                    score_type = "하이브리드" if self.use_news_strategy else "기술적"
+                    print(f"   → 높은 {score_type} 점수({reset_score * 100:.1f}%)로 보유기간 리셋 예정")
 
             else:
                 # 신규 매수
@@ -609,6 +638,9 @@ class BacktestEngine:
                                                                   candidate.get('technical_score', 0.5))
                 additional_info['normalized_score'] = candidate.get('normalized_score',
                                                                     candidate.get('technical_score', 0.5))
+                additional_info['hybrid_score'] = candidate.get('hybrid_score',
+                                                               candidate.get('combined_score', 
+                                                                           candidate.get('technical_score', 0.5)))
 
                 # 뉴스 신호 정보 추가
                 if 'news_signal' in candidate:
@@ -626,12 +658,14 @@ class BacktestEngine:
                 # 상세 매수 정보 출력
                 action = "피라미딩" if is_holding else "신규"
                 if self.use_news_strategy:
-                    # 정규화된 점수 사용
-                    display_score = candidate.get('normalized_score', candidate.get('combined_score', 0))
+                    # hybrid_score가 있으면 사용
+                    display_score = candidate.get('hybrid_score',
+                                                 candidate.get('normalized_score', 
+                                                              candidate.get('combined_score', 0)))
                     if display_score > 1.0:  # combined_score가 거래대금 기반인 경우
                         display_score = candidate.get('technical_score', 0)
 
-                    print(f"✅ {ticker} {action} 매수 완료 - 종합점수: {display_score * 100:.1f}% "
+                    print(f"✅ {ticker} {action} 매수 완료 - 하이브리드점수: {display_score * 100:.1f}% "
                           f"(기술적: {candidate.get('technical_score', 0) * 100:.1f}%, "
                           f"뉴스: {candidate.get('news_score', 0) * 100:.1f}%)")
                 else:
@@ -643,9 +677,12 @@ class BacktestEngine:
     def _determine_investment_amount(self, candidate: Dict[str, Any],
                                      base_amount: float) -> float:
         """종합 점수 기반 투자 금액 결정"""
-        # 뉴스 전략 사용 시 종합 점수 사용, 아니면 기술적 점수만 사용
-        if self.use_news_strategy and 'combined_score' in candidate:
-            score = candidate.get('normalized_score', candidate.get('combined_score', 0.5))
+        # 뉴스 전략 사용 시 하이브리드 점수 사용, 아니면 기술적 점수만 사용
+        if self.use_news_strategy:
+            # hybrid_score가 있으면 사용, 없으면 combined_score나 normalized_score 사용
+            score = candidate.get('hybrid_score',
+                                 candidate.get('normalized_score', 
+                                              candidate.get('combined_score', 0.5)))
         else:
             score = candidate.get('technical_score', 0.5)
 

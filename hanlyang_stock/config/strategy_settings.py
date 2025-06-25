@@ -98,7 +98,7 @@ class StrategyConfig:
     # 기본 설정
     max_selections: int = 5                       # 최대 선정 종목 수 - 백테스트 기본값과 일치
     stop_loss_enabled: bool = True                # 손실 제한 사용
-    stop_loss_rate: float = -0.05                 # 손실 제한 비율 (-5%)
+    stop_loss_rate: float = -0.03                 # 손실 제한 비율 (-5%)
     
     # 포지션 관리 (수익률 극대화)
     position_size_ratio: float = 0.9              # 현금 대비 투자 비율 (90%)
@@ -237,7 +237,7 @@ class StrategyConfig:
         return cls(
             max_selections=config_dict.get('max_selections', 5),
             stop_loss_enabled=config_dict.get('stop_loss_enabled', True),
-            stop_loss_rate=config_dict.get('stop_loss_rate', -0.05),
+            stop_loss_rate=config_dict.get('stop_loss_rate', -0.03),
             position_size_ratio=config_dict.get('position_size_ratio', 0.9),
             safety_cash_amount=config_dict.get('safety_cash_amount', 1_000_000),
             investment_amounts=config_dict.get('investment_amounts', {

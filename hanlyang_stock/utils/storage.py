@@ -85,7 +85,7 @@ class StrategyDataManager:
             'pyramiding_reset_threshold': 0.80,
             'news_weight': 0.3,
             'technical_weight': 0.7,
-            'min_combined_score': 0.7,
+            'min_combined_score': 0.55,
             'debug_news': True,
             'trend_strength_filter_enabled': True,  # 추세 강도 필터 활성화
             # 투자 금액 설정 (50% 증액)

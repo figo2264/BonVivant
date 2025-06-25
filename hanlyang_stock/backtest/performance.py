@@ -134,13 +134,13 @@ class PerformanceAnalyzer:
     
     def analyze_ai_performance(self, trade_history: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        AI 모델 성과 분석
+        전략별 성과 분석 (AI/기술적/하이브리드)
         
         Args:
             trade_history: 거래 히스토리
             
         Returns:
-            Dict: AI 성과 분석 결과
+            Dict: 전략 성과 분석 결과
         """
         sell_trades = [t for t in trade_history if t['action'] == 'SELL']
         
@@ -186,7 +186,7 @@ class PerformanceAnalyzer:
         }
     
     def _analyze_ai_score_performance(self, sell_trades: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """AI 점수별 성과 분석"""
+        """AI/기술적/하이브리드 점수별 성과 분석"""
         score_ranges = {
             'very_high': {'min': 0.8, 'max': 1.0, 'trades': []},
             'high': {'min': 0.7, 'max': 0.8, 'trades': []},
@@ -196,10 +196,11 @@ class PerformanceAnalyzer:
         
         # 거래를 점수 범위별로 분류
         for trade in sell_trades:
-            ai_score = trade.get('ai_score', 0.5)
+            # 하위 호환성: 새로운 필드를 먼저 확인하고, 없으면 ai_score 사용
+            score = trade.get('hybrid_score') or trade.get('technical_score') or trade.get('ai_score', 0.5)
             
             for range_name, range_data in score_ranges.items():
-                if range_data['min'] <= ai_score < range_data['max']:
+                if range_data['min'] <= score < range_data['max']:
                     range_data['trades'].append(trade)
                     break
         
@@ -248,13 +249,13 @@ class PerformanceAnalyzer:
         print("=" * 60)
     
     def print_ai_performance_summary(self, ai_performance: Dict[str, Any]):
-        """AI 성과 요약 출력"""
+        """AI/전략 성과 요약 출력"""
         if not ai_performance:
-            print("❌ AI 성과 분석 결과가 없습니다.")
+            print("❌ 성과 분석 결과가 없습니다.")
             return
         
         print("\n" + "=" * 60)
-        print("🤖 AI 모델 성과 분석")
+        print("🤖 전략별 성과 분석")
         print("=" * 60)
         
         # 신뢰도별 성과
@@ -268,8 +269,8 @@ class PerformanceAnalyzer:
                 print(f"      평균 수익률: {data['avg_profit_rate']:+.2f}%")
                 print(f"      총 손익: {data['total_profit']:+,.0f}원")
         
-        # AI 점수별 성과
-        print("\n📈 AI 점수별 성과:")
+        # 점수별 성과
+        print("\n📈 점수별 성과:")
         score_perf = ai_performance.get('ai_score_performance', {})
         
         score_labels = {

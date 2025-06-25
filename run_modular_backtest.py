@@ -81,7 +81,7 @@ def run_profit_maximized_backtest():
         max_positions=7,                 # 7개 종목까지
         position_size_ratio=0.9,         # 90% 투자
         safety_cash_amount=1_000_000,    # 안전 자금 100만원
-        stop_loss_rate=-0.05,            # -5% 손실제한
+        stop_loss_rate=-0.03,            # -3% 손실제한
         min_technical_score=0.5,         # 기술점수 기준 완화
         investment_amounts={              # 투자 금액 증액
             '최고신뢰': 1_200_000,       # 120만원 (점수 0.8+)

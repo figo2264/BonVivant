@@ -37,7 +37,7 @@ class BacktestConfig:
     max_positions: int = 7                   # 최대 보유 종목 수 (수익률 극대화)
     
     # 리스크 관리
-    stop_loss_rate: float = -0.05            # 손실 제한 (-5%)
+    stop_loss_rate: float = -0.03            # 손실 제한 (-5%)
     max_holding_days: int = 5                # 최대 보유 일수
     position_size_ratio: float = 0.9         # 현금 대비 투자 비율 (수익률 극대화)
     safety_cash_amount: float = 1_000_000    # 안전 자금 (100만원으로 감소)

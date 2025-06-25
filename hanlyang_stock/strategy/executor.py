@@ -413,7 +413,7 @@ class BuyExecutor:
                  hybrid_strategy_enabled: bool = False,
                  news_weight: float = 0.3,
                  technical_weight: float = 0.7,
-                 min_combined_score: float = 0.7,
+                 min_combined_score: float = 0.55,
                  debug_news: bool = True,
                  **kwargs):
         self.data_fetcher = get_data_fetcher()
@@ -821,11 +821,13 @@ class BuyExecutor:
                 print(f"   🎯 계획투자: {investment_info['amount']:,}원")
                 
                 if investment_info.get('is_hybrid'):
-                    print(f"   🤝 하이브리드 점수: {investment_info['ai_score']:.3f} ({investment_info['confidence_level']})")
+                    score = investment_info['hybrid_score']
+                    print(f"   🤝 하이브리드 점수: {score:.3f} ({investment_info['confidence_level']})")
                     print(f"      - 기술적: {investment_info['technical_score']:.3f}")
                     print(f"      - 뉴스: {investment_info['news_score']:.3f} ({investment_info['news_sentiment']})")
                 else:
-                    print(f"   🤖 AI점수: {investment_info['ai_score']:.3f} ({investment_info['confidence_level']})")
+                    score = investment_info['technical_score']
+                    print(f"   📊 기술적 점수: {score:.3f} ({investment_info['confidence_level']})")
                 
                 if remaining_balance <= 0:
                     print(f"⚠️ {ticker}: 투자 가능 금액 부족 (잔액: {remaining_balance:,}원)")
@@ -869,7 +871,7 @@ class BuyExecutor:
                 if self.hybrid_strategy_enabled:
                     print(f"📥 {ticker} 하이브리드 전략 기반 매수 실행:")
                 else:
-                    print(f"📥 {ticker} AI 신뢰도 기반 매수 실행:")
+                    print(f"📥 {ticker} 기술적 분석 기반 매수 실행:")
                 print(f"   수량: {quantity_to_buy:,}주")
                 print(f"   단가: {current_price:,}원")
                 print(f"   투자금액: {actual_investment:,}원")
@@ -878,12 +880,21 @@ class BuyExecutor:
                 order_id, actual_quantity = self.ht.bid(ticker, 'market', quantity_to_buy, 'STOCK')
                 
                 if order_id:
+                    # 점수 추출 (전략에 따라 다른 키 사용)
+                    if investment_info.get('is_hybrid'):
+                        score_key = 'hybrid_score'
+                        score = investment_info['hybrid_score']
+                    else:
+                        score_key = 'technical_score' 
+                        score = investment_info['technical_score']
+                    
                     bought_tickers.append({
                         'ticker': ticker,
                         'quantity': actual_quantity,
                         'investment': actual_investment,
-                        'ai_score': investment_info['ai_score'],
-                        'confidence_level': investment_info['confidence_level']
+                        score_key: score,  # 전략에 따른 점수 키 사용
+                        'confidence_level': investment_info['confidence_level'],
+                        'is_hybrid': investment_info.get('is_hybrid', False)
                     })
                     total_invested += actual_investment
                     
@@ -917,21 +928,30 @@ class BuyExecutor:
                                 'investment': existing_info.get('investment', 0) + actual_investment,
                                 'buy_date': existing_info.get('buy_date'),  # 최초 매수일 유지
                                 'last_buy_date': datetime.now().isoformat(),  # 최근 매수일
-                                'ai_score': investment_info['ai_score'],
                                 'confidence_level': investment_info['confidence_level'],
                                 'is_pyramiding': True,
                                 'pyramiding_count': existing_info.get('pyramiding_count', 0) + 1,
                                 'reset_count': existing_info.get('reset_count', 0)  # 리셋 횟수 유지
                             }
                             
+                            # 전략에 따른 점수 저장
+                            if investment_info.get('is_hybrid'):
+                                purchase_info['hybrid_score'] = investment_info['hybrid_score']
+                                purchase_info['ai_score'] = investment_info['hybrid_score']  # 하위 호환성
+                            else:
+                                purchase_info['technical_score'] = investment_info['technical_score']
+                                purchase_info['ai_score'] = investment_info['technical_score']  # 하위 호환성
+                            
                             # 보유 기간 리셋 여부 (점수가 80% 이상일 때)
                             reset_threshold = strategy_data.get('pyramiding_reset_threshold', 0.80)
-                            reset_holding = investment_info['ai_score'] >= reset_threshold
+                            # 전략에 따른 점수 사용
+                            current_score = investment_info.get('hybrid_score') if investment_info.get('is_hybrid') else investment_info.get('technical_score')
+                            reset_holding = current_score >= reset_threshold
                             
                             if reset_holding:
                                 # 현재 보유 기간 확인
                                 old_holding_days = self.data_manager.get_holding_period(ticker)
-                                print(f"   🔄 높은 점수({investment_info['ai_score']*100:.1f}%)로 보유기간 리셋")
+                                print(f"   🔄 높은 점수({current_score*100:.1f}%)로 보유기간 리셋")
                                 print(f"      🔄 {ticker} 보유기간 리셋 (현재 보유일: {old_holding_days}일 → 1일)")
                                 
                                 # 리셋 정보 업데이트
@@ -942,7 +962,7 @@ class BuyExecutor:
                                 self.data_manager.reset_holding_period(ticker)
                                 self.data_manager.set_holding_period(ticker, 1)
                             else:
-                                print(f"   📊 점수({investment_info['ai_score']*100:.1f}%)가 리셋 기준({reset_threshold*100:.0f}%) 미달")
+                                print(f"   📊 점수({current_score*100:.1f}%)가 리셋 기준({reset_threshold*100:.0f}%) 미달")
                     else:
                         # 신규 매수
                         purchase_info = {
@@ -950,10 +970,17 @@ class BuyExecutor:
                             'quantity': actual_quantity,
                             'investment': actual_investment,
                             'buy_date': datetime.now().isoformat(),
-                            'ai_score': investment_info['ai_score'],
                             'confidence_level': investment_info['confidence_level'],
                             'reset_count': 0  # 리셋 횟수 초기화
                         }
+                        
+                        # 전략에 따른 점수 저장
+                        if investment_info.get('is_hybrid'):
+                            purchase_info['hybrid_score'] = investment_info['hybrid_score']
+                            purchase_info['ai_score'] = investment_info['hybrid_score']  # 하위 호환성
+                        else:
+                            purchase_info['technical_score'] = investment_info['technical_score']
+                            purchase_info['ai_score'] = investment_info['technical_score']  # 하위 호환성
                     
                     # 하이브리드 전략 정보 추가
                     if investment_info.get('is_hybrid'):
@@ -980,15 +1007,30 @@ class BuyExecutor:
                     
                     self.data_manager.set_purchase_info(ticker, purchase_info)
                     
-                    # 슬랙 알림: 매수 체결
-                    self.notifier.notify_buy_execution(
-                        ticker=ticker,
-                        quantity=actual_quantity,
-                        investment=actual_investment,
-                        current_price=current_price,
-                        ai_score=investment_info['ai_score'],
-                        confidence_level=investment_info['confidence_level']
-                    )
+                    # 슬랙 알림: 매수 체결 (전략에 따른 점수 전달)
+                    if investment_info.get('is_hybrid'):
+                        self.notifier.notify_buy_execution(
+                            ticker=ticker,
+                            quantity=actual_quantity,
+                            investment=actual_investment,
+                            current_price=current_price,
+                            score=investment_info['hybrid_score'],
+                            score_type='hybrid',
+                            confidence_level=investment_info['confidence_level'],
+                            technical_score=investment_info.get('technical_score'),
+                            news_score=investment_info.get('news_score'),
+                            news_sentiment=investment_info.get('news_sentiment')
+                        )
+                    else:
+                        self.notifier.notify_buy_execution(
+                            ticker=ticker,
+                            quantity=actual_quantity,
+                            investment=actual_investment,
+                            current_price=current_price,
+                            score=investment_info['technical_score'],
+                            score_type='technical',
+                            confidence_level=investment_info['confidence_level']
+                        )
                     
                     print(f"✅ {ticker} 매수 완료")
                     if self.hybrid_strategy_enabled:
@@ -1034,7 +1076,7 @@ class BuyExecutor:
             
             return {
                 'amount': investment_amount,
-                'ai_score': score,
+                'hybrid_score': score,
                 'confidence_level': confidence_level,
                 'is_hybrid': True,
                 'technical_score': candidate.get('technical_score', 0.7),
@@ -1056,20 +1098,20 @@ class BuyExecutor:
                 entry_price = purchase_info.get('buy_price', None) if purchase_info else None
                 
                 analyzer = get_technical_analyzer()
-                ai_score = analyzer.get_technical_score(ticker, holding_days, entry_price)
-                print(f"      📊 보유 종목 기술점수 (보유 {holding_days}일): {ai_score:.3f}")
+                technical_score = analyzer.get_technical_score(ticker, holding_days, entry_price)
+                print(f"      📊 보유 종목 기술점수 (보유 {holding_days}일): {technical_score:.3f}")
             else:
                 # 신규 매수인 경우
-                ai_score = get_technical_score(ticker)
+                technical_score = get_technical_score(ticker)
             
-            # 강화된 AI 신뢰도 기반 투자 금액 계산 (백테스트 엔진과 일관성 맞춤)
-            if ai_score >= 0.80:           # 최고신뢰: 80만원
+            # 기술적 분석 기반 투자 금액 계산
+            if technical_score >= 0.80:           # 최고신뢰: 80만원
                 investment_amount = 800_000    
                 confidence_level = "최고신뢰"
-            elif ai_score >= 0.70:         # 고신뢰: 60만원
+            elif technical_score >= 0.70:         # 고신뢰: 60만원
                 investment_amount = 600_000    
                 confidence_level = "고신뢰"
-            elif ai_score >= 0.65:         # 중신뢰: 40만원
+            elif technical_score >= 0.65:         # 중신뢰: 40만원
                 investment_amount = 400_000    
                 confidence_level = "중신뢰"
             else:                          # 저신뢰: 30만원
@@ -1078,7 +1120,7 @@ class BuyExecutor:
             
             return {
                 'amount': investment_amount,
-                'ai_score': ai_score,
+                'technical_score': technical_score,
                 'confidence_level': confidence_level,
                 'is_hybrid': False
             }
@@ -1097,7 +1139,7 @@ class BuyExecutor:
         if self.hybrid_strategy_enabled:
             print(f"\n💼 하이브리드 전략 기반 매수 완료:")
         else:
-            print(f"\n💼 AI 신뢰도 기반 매수 완료:")
+            print(f"\n💼 기술적 분석 기반 매수 완료:")
         print(f"   매수 종목 수: {buy_results['bought_count']}개")
         print(f"   총 투자금액: {buy_results['total_invested']:,}원")
     

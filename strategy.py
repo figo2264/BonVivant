@@ -40,7 +40,7 @@ def main():
         print(f"   🏢 최대 보유 종목: {strategy_data.get('backtest_params', {}).get('max_positions', 7)}개 (수익률 극대화)")
         print(f"   💰 투자 비율: {strategy_data.get('position_size_ratio', 0.9)*100:.0f}% (수익률 극대화)")
         print(f"   🛡️ 안전 자금: {strategy_data.get('safety_cash_amount', 1_000_000)/10_000:.0f}만원 (최소화)")
-        print(f"   🛑 손실 제한: {strategy_data.get('stop_loss_rate', -0.05)*100:.1f}%")
+        print(f"   🛑 손실 제한: {strategy_data.get('stop_loss_rate', -0.03)*100:.1f}%")
         print(f"   🤝 하이브리드 전략: {'활성화' if strategy_data.get('hybrid_strategy_enabled') else '비활성화'}")
         if strategy_data.get('hybrid_strategy_enabled'):
             print(f"      - 기술적 분석: {strategy_data.get('technical_weight', 0.7)*100:.0f}%")
@@ -99,7 +99,7 @@ def main():
                 # 최신 설정 다시 로드 (설정 파일 기반)
                 strategy_data = data_manager.get_data()
 
-                sell_executor = SellExecutor(stop_loss_rate=strategy_data.get('stop_loss_rate', -0.05))
+                sell_executor = SellExecutor(stop_loss_rate=strategy_data.get('stop_loss_rate', -0.03))
                 sell_results = sell_executor.execute()
                 
                 print(f"✅ 매도 전략 완료: {sell_results.get('sold_count', 0)}개 종목 매도")

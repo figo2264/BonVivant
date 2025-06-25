@@ -66,8 +66,10 @@ class SlackNotifier:
         return self.send_message(message)
     
     def notify_buy_execution(self, ticker: str, quantity: int, investment: float, 
-                           current_price: float, ai_score: float, 
-                           confidence_level: str) -> bool:
+                           current_price: float, score: float, score_type: str,
+                           confidence_level: str, technical_score: float = None,
+                           news_score: float = None, news_sentiment: str = None,
+                           ai_score: float = None) -> bool:
         """
         매수 체결 알림
         
@@ -76,17 +78,41 @@ class SlackNotifier:
             quantity: 매수 수량
             investment: 투자 금액
             current_price: 매수 단가
-            ai_score: AI 점수
+            score: 점수 (hybrid_score 또는 technical_score)
+            score_type: 점수 유형 ('hybrid' 또는 'technical')
             confidence_level: 신뢰도 등급
+            technical_score: 기술적 점수 (하이브리드인 경우)
+            news_score: 뉴스 점수 (하이브리드인 경우)
+            news_sentiment: 뉴스 감정 (하이브리드인 경우)
+            ai_score: AI 점수 (하위 호환성)
             
         Returns:
             bool: 전송 성공 여부
         """
+        # 하위 호환성: ai_score만 전달된 경우
+        if ai_score is not None and score is None:
+            score = ai_score
+            score_type = 'ai'
+        
         message = f"📥 **오후 매수 체결**\n"
         message += f"종목: {ticker}\n"
         message += f"수량: {quantity:,}주\n"
         message += f"투자금액: {investment:,}원\n"
-        message += f"AI점수: {ai_score:.3f} ({confidence_level})\n"
+        
+        # 점수 표시 (전략에 따라 다르게)
+        if score_type == 'hybrid':
+            message += f"하이브리드점수: {score:.3f} ({confidence_level})\n"
+            if technical_score is not None and news_score is not None:
+                message += f"  - 기술적: {technical_score:.3f}\n"
+                message += f"  - 뉴스: {news_score:.3f}"
+                if news_sentiment:
+                    message += f" ({news_sentiment})"
+                message += "\n"
+        elif score_type == 'technical':
+            message += f"기술점수: {score:.3f} ({confidence_level})\n"
+        else:  # 하위 호환성
+            message += f"AI점수: {score:.3f} ({confidence_level})\n"
+        
         message += f"단가: {current_price:,}원"
         
         return self.send_message(message)
@@ -286,11 +312,17 @@ def notify_sell_execution(ticker: str, quantity: int, holding_days: int,
     return notifier.notify_sell_execution(ticker, quantity, holding_days, profit_rate, profit, confidence_level)
 
 def notify_buy_execution(ticker: str, quantity: int, investment: float, 
-                       current_price: float, ai_score: float, 
-                       confidence_level: str) -> bool:
-    """매수 체결 알림"""
+                       current_price: float, score: float = None, score_type: str = None,
+                       confidence_level: str = None, technical_score: float = None,
+                       news_score: float = None, news_sentiment: str = None,
+                       ai_score: float = None) -> bool:
+    """매수 체결 알림 (하위 호환성 유지)"""
     notifier = get_notifier()
-    return notifier.notify_buy_execution(ticker, quantity, investment, current_price, ai_score, confidence_level)
+    return notifier.notify_buy_execution(
+        ticker, quantity, investment, current_price, 
+        score, score_type, confidence_level,
+        technical_score, news_score, news_sentiment, ai_score
+    )
 
 def notify_morning_sell_summary(sold_count: int, total_profit: float, current_holdings: int) -> bool:
     """아침 매도 완료 요약"""

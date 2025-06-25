@@ -196,6 +196,11 @@ class Portfolio:
             self.cash += net_amount
             self.holdings[ticker]['quantity'] = 0  # 수량만 0으로 설정
             
+            # 보유기간 계산 (실제 날짜 차이)
+            buy_date = pd.to_datetime(holding.get('buy_date', current_date))
+            current_date_pd = pd.to_datetime(current_date)
+            actual_holding_days = (current_date_pd - buy_date).days
+            
             # 거래 기록
             self.trade_history.append({
                 'date': current_date,
@@ -207,7 +212,7 @@ class Portfolio:
                 'fee': transaction_fee,
                 'profit': profit,
                 'profit_rate': profit_rate,
-                'holding_days': self.holding_period.get(ticker, 0),
+                'holding_days': actual_holding_days,  # 실제 보유 일수
                 'sell_reason': sell_reason,
                 'avg_buy_price': buy_price  # 평균 매수 단가 기록
             })
@@ -216,7 +221,7 @@ class Portfolio:
             if ticker in self.holding_period:
                 self.holding_period[ticker] = 0
             
-            print(f"📤 {ticker} 매도 완료: 수익률 {profit_rate:+.2f}% ({self.holding_period.get(ticker, 0)}일 보유)")
+            print(f"📤 {ticker} 매도 완료: 수익률 {profit_rate:+.2f}% ({actual_holding_days}일 보유)")
             return True
             
         except Exception as e:
