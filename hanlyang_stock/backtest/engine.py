@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional
 
 from .portfolio import Portfolio
 from .performance import PerformanceAnalyzer, get_performance_analyzer
-from .data_validator import DataValidator, get_data_validator
+from ..utils.data_validator import DataValidator, get_data_validator
 from ..data.fetcher import get_data_fetcher
 from ..analysis.technical import get_technical_analyzer
 from ..strategy.selector import get_stock_selector

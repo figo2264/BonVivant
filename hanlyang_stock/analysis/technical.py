@@ -8,6 +8,7 @@ import numpy as np
 from typing import Optional
 from ..data.fetcher import get_data_fetcher
 from ..data.preprocessor import create_technical_features
+from ..utils.data_validator import validate_ticker_data as validate_data
 
 
 class TechnicalAnalyzer:
@@ -263,7 +264,7 @@ class TechnicalAnalyzer:
         """
         try:
             # 데이터 검증부터 수행
-            if not self.validate_ticker_data(ticker):
+            if not validate_data(ticker):
                 print(f"⚠️ {ticker}: 홀드 시그널 계산용 데이터 검증 실패")
                 return 0.5
             
@@ -374,62 +375,6 @@ class TechnicalAnalyzer:
             print(f"   오류 상세: {traceback.format_exc()}")
             return 0.5
 
-    def validate_ticker_data(self, ticker: str, min_days=5) -> bool:
-        """
-        종목 데이터 존재 여부 사전 확인 (백테스트 엔진에서 완전 이식)
-        
-        Args:
-            ticker: 종목 코드
-            min_days: 최소 필요 데이터 일수
-            
-        Returns:
-            bool: 데이터 유효성 여부
-        """
-        try:
-            # 1. 기본 데이터 조회 (더 많은 데이터로 조회)
-            data = self.data_fetcher.get_past_data_enhanced(ticker, n=min_days * 3)  # 여유있게 조회
-            if data.empty:
-                print(f"⚠️ {ticker}: 기본 데이터 조회 실패")
-                return False
-            
-            # 2. 최소 데이터 개수 확인
-            if len(data) < min_days:
-                print(f"⚠️ {ticker}: 데이터 부족 ({len(data)}개 < {min_days}개)")
-                return False
-            
-            # 3. 가격 데이터 유효성 확인
-            latest_row = data.iloc[-1]
-            current_price = latest_row.get('close', 0)
-            
-            if current_price <= 0:
-                print(f"⚠️ {ticker}: 유효하지 않은 가격 ({current_price})")
-                return False
-            
-            # 4. 거래량 확인 (0이면 거래 정지 종목일 가능성)
-            volume = latest_row.get('volume', 0)
-            if volume <= 0:
-                print(f"⚠️ {ticker}: 거래량 없음 (거래정지 가능성)")
-                return False
-            
-            # 5. 가격 범위 확인 (리스크 관리)
-            if current_price < 1000:  # 1천원 미만 저가주
-                print(f"⚠️ {ticker}: 저가주 제외 ({current_price:,}원)")
-                return False
-            
-            if current_price > 1_000_000:  # 100만원 초과 고가주
-                print(f"⚠️ {ticker}: 고가주 제외 ({current_price:,}원)")
-                return False
-            
-            # print(f"✅ {ticker}: 데이터 검증 통과 (가격: {current_price:,}원, 거래량: {volume:,})")
-            return True
-            
-        except Exception as e:
-            print(f"❌ {ticker} 데이터 검증 오류: {e}")
-            # 상세 오류 로깅
-            import traceback
-            print(f"   오류 상세: {traceback.format_exc()}")
-            return False
-
     def analyze_multiple_tickers(self, tickers: list) -> dict:
         """
         여러 종목에 대한 기술적 분석 일괄 수행
@@ -445,7 +390,7 @@ class TechnicalAnalyzer:
         for ticker in tickers:
             try:
                 # 데이터 검증부터 수행
-                if not self.validate_ticker_data(ticker):
+                if not validate_data(ticker):
                     print(f"❌ {ticker} 데이터 검증 실패 - 분석 스킵")
                     results[ticker] = {
                         'score': 0.3,
@@ -510,10 +455,8 @@ def get_technical_hold_signal(ticker: str, current_date=None) -> float:
     analyzer = get_technical_analyzer()
     return analyzer.get_technical_hold_signal(ticker, current_date)
 
-def validate_ticker_data(ticker: str, min_days=5) -> bool:
-    """종목 데이터 검증"""
-    analyzer = get_technical_analyzer()
-    return analyzer.validate_ticker_data(ticker, min_days)
+# validate_ticker_data는 공용 data_validator에서 직접 import
+from ..utils.data_validator import validate_ticker_data
 
 def analyze_multiple_tickers(tickers: list) -> dict:
     """여러 종목 기술적 분석"""

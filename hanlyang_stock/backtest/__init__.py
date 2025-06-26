@@ -6,11 +6,9 @@ Backtest module for Hanlyang Stock Strategy
 from .engine import BacktestEngine
 from .portfolio import Portfolio
 from .performance import PerformanceAnalyzer
-from .data_validator import DataValidator
 
 __all__ = [
     'BacktestEngine',
     'Portfolio', 
-    'PerformanceAnalyzer',
-    'DataValidator'
+    'PerformanceAnalyzer'
 ]

@@ -7,7 +7,7 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Set
 from ..data.fetcher import get_data_fetcher
-from ..analysis.technical import get_technical_score, validate_ticker_data
+from ..analysis.technical import get_technical_score
 from ..utils.storage import get_data_manager
 import pandas as pd
 import numpy as np
@@ -758,18 +758,12 @@ class StockSelector:
                 ticker = row['ticker']
                 
                 # 🔧 데이터 검증 강화 (백테스트 엔진 기능 적용)
-                if self.backtest_mode:
-                    # 백테스트 모드에서는 data_validator 직접 사용
-                    from ..backtest.data_validator import get_data_validator
-                    validator = get_data_validator()
-                    if not validator.validate_ticker_data(ticker, effective_date):
-                        print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
-                        continue
-                else:
-                    # 실시간 모드에서는 기존 검증 방식 사용
-                    if not validate_ticker_data(ticker):
-                        print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
-                        continue
+                # 공용 data_validator 사용
+                from ..utils.data_validator import get_data_validator
+                validator = get_data_validator()
+                if not validator.validate_ticker_data(ticker, effective_date):
+                    print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
+                    continue
                 
                 # 기술적 분석 점수 계산
                 technical_score = get_technical_score(ticker)
