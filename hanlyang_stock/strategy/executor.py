@@ -305,6 +305,7 @@ class SellExecutor:
         """매도 실행"""
         sold_tickers = []
         total_sell_profit = 0
+        sell_log = []
         
         for ticker in tickers_to_sell:
             holding_days = self.data_manager.get_holding_period(ticker)
@@ -322,16 +323,44 @@ class SellExecutor:
                     sold_tickers.append(ticker)
                     total_sell_profit += profit_info['profit']
                     
-                    # 슬랙 알림: 매도 체결
+                    # purchase_info가 없는 경우를 위한 처리
                     purchase_info = self.data_manager.get_purchase_info(ticker)
+                    if not purchase_info:
+                        print(f"   ⚠️ {ticker}: purchase_info 없음 - 수익률 계산 불가")
+                        # 현재가와 수량만으로 대략적인 매도금액 표시
+                        current_price = self.data_fetcher.get_current_price(ticker)
+                        if current_price:
+                            sell_value = quantity * current_price
+                            print(f"   💰 매도금액: {sell_value:,}원 (현재가 × 수량)")
+                    
+                    # 매도 기록 저장
+                    sell_record = {
+                        'ticker': ticker,
+                        'quantity': quantity,
+                        'holding_days': holding_days,
+                        'sell_date': datetime.now().isoformat(),
+                        'profit': profit_info['profit'],
+                        'profit_rate': profit_info['profit_rate']
+                    }
+                    
+                    if purchase_info:
+                        sell_record.update({
+                            'buy_price': purchase_info.get('buy_price', 0),
+                            'buy_date': purchase_info.get('buy_date'),
+                            'confidence_level': purchase_info.get('confidence_level')
+                        })
+                    
+                    sell_log.append(sell_record)
+                    
+                    # 슬랙 알림: 매도 체결
                     confidence_level = purchase_info.get('confidence_level') if purchase_info else None
                     
                     self.notifier.notify_sell_execution(
                         ticker=ticker,
                         quantity=quantity,
                         holding_days=holding_days,
-                        profit_rate=profit_info['profit_rate'],
-                        profit=profit_info['profit'],
+                        profit_rate=profit_info['profit_rate'] if profit_info['profit'] != 0 else None,
+                        profit=profit_info['profit'] if profit_info['profit'] != 0 else None,
                         confidence_level=confidence_level
                     )
                     
@@ -344,6 +373,16 @@ class SellExecutor:
                 
             except Exception as e:
                 print(f"❌ {ticker} 매도 처리 오류: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # 매도 기록을 성과 로그에 추가
+        if sell_log:
+            for record in sell_log:
+                self.data_manager.add_performance_log({
+                    'type': 'sell_execution',
+                    **record
+                })
         
         return {
             'sold_tickers': sold_tickers,
@@ -355,7 +394,7 @@ class SellExecutor:
         """수익률 계산"""
         purchase_info = self.data_manager.get_purchase_info(ticker)
         current_price = self.data_fetcher.get_current_price(ticker)
-        
+
         profit_info = {
             'profit': 0,
             'profit_rate': 0.0,
@@ -364,7 +403,7 @@ class SellExecutor:
         
         if purchase_info and current_price:
             buy_price = purchase_info.get('buy_price', 0)
-            
+
             if buy_price > 0:
                 sell_value = quantity * current_price
                 buy_value = quantity * buy_price
@@ -376,6 +415,8 @@ class SellExecutor:
                     'profit_rate': profit_rate,
                     'display': f" | 수익률: {profit_rate:+.2f}% ({profit:+,}원)"
                 }
+        else:
+            print(f"      ⚠️ 수익률 계산 불가 - purchase_info: {purchase_info is not None}, current_price: {current_price is not None}")
         
         return profit_info
     
