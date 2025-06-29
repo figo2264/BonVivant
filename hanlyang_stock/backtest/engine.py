@@ -587,7 +587,7 @@ class BacktestEngine:
                     # 기술적 전략인 경우
                     score = candidate.get('technical_score', 0)
                 
-                # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
+                # combined_score가 거래대금 기반인 경우 (volume_weighted_score) technical_score 사용
                 if score > 1.0:
                     score = candidate.get('technical_score', 0)
 
@@ -736,7 +736,7 @@ class BacktestEngine:
         else:
             score = candidate.get('technical_score', 0.5)
 
-        # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
+        # combined_score가 거래대금 기반인 경우 (volume_weighted_score) technical_score 사용
         if score > 1.0:
             score = candidate.get('technical_score', 0.5)
 

@@ -74,12 +74,35 @@ class PyramidingParameters:
 
 
 @dataclass
+class TrendStrengthWeights:
+    """추세 강도 필터 가중치"""
+    sar: float = 0.35        # 파라볼릭 SAR (가장 중요)
+    rsi: float = 0.25        # RSI 반등 신호
+    support: float = 0.20    # 지지선 근처
+    volume: float = 0.10     # 거래량 급증
+    candle: float = 0.10     # 양봉 크기
+    min_score: float = 0.6   # 최소 통과 점수 (기존 3/5 = 0.6)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'sar': self.sar,
+            'rsi': self.rsi,
+            'support': self.support,
+            'volume': self.volume,
+            'candle': self.candle,
+            'min_score': self.min_score
+        }
+
+
+@dataclass
 class QualityFilterParameters:
     """품질 필터 파라미터"""
     enabled: bool = True
     min_market_cap: float = 50_000_000_000       # 최소 시가총액 (500억) - 하향 조정
     min_trade_amount: float = 100_000_000        # 최소 거래대금 (1억) - 추가 완화
     trend_strength_filter_enabled: bool = True   # 추세 강도 필터 사용
+    trend_strength_weights: TrendStrengthWeights = field(default_factory=TrendStrengthWeights)
     
     def to_dict(self) -> Dict[str, Any]:
         """딕셔너리로 변환"""
@@ -87,7 +110,8 @@ class QualityFilterParameters:
             'enabled': self.enabled,
             'min_market_cap': self.min_market_cap,
             'min_trade_amount': self.min_trade_amount,
-            'trend_strength_filter_enabled': self.trend_strength_filter_enabled
+            'trend_strength_filter_enabled': self.trend_strength_filter_enabled,
+            'trend_strength_weights': self.trend_strength_weights.to_dict()
         }
 
 
@@ -191,6 +215,7 @@ class StrategyConfig:
             'min_market_cap': self.quality_filter.min_market_cap,
             'enhanced_min_trade_amount': self.quality_filter.min_trade_amount,
             'trend_strength_filter_enabled': self.quality_filter.trend_strength_filter_enabled,
+            'trend_strength_weights': self.quality_filter.trend_strength_weights.to_dict(),
         }
     
     @classmethod
@@ -227,11 +252,22 @@ class StrategyConfig:
         )
         
         # 품질 필터 파라미터 추출
+        trend_weights_dict = config_dict.get('quality_filter', {}).get('trend_strength_weights', {})
+        trend_strength_weights = TrendStrengthWeights(
+            sar=trend_weights_dict.get('sar', 0.35),
+            rsi=trend_weights_dict.get('rsi', 0.25),
+            support=trend_weights_dict.get('support', 0.20),
+            volume=trend_weights_dict.get('volume', 0.10),
+            candle=trend_weights_dict.get('candle', 0.10),
+            min_score=trend_weights_dict.get('min_score', 0.6)
+        )
+        
         quality_filter = QualityFilterParameters(
             enabled=config_dict.get('quality_filter_enabled', True),
             min_market_cap=config_dict.get('min_market_cap', 100_000_000_000),
             min_trade_amount=config_dict.get('enhanced_min_trade_amount', 300_000_000),  # 3억원으로 수정
-            trend_strength_filter_enabled=config_dict.get('trend_strength_filter_enabled', True)
+            trend_strength_filter_enabled=config_dict.get('trend_strength_filter_enabled', True),
+            trend_strength_weights=trend_strength_weights
         )
         
         return cls(
@@ -280,7 +316,16 @@ CONSERVATIVE_STRATEGY = StrategyConfig(
     ),
     quality_filter=QualityFilterParameters(
         min_market_cap=500_000_000_000,  # 5000억
-        min_trade_amount=500_000_000     # 5억 - 백테스트 CONSERVATIVE와 일치
+        min_trade_amount=500_000_000,    # 5억 - 백테스트 CONSERVATIVE와 일치
+        trend_strength_filter_enabled=True,
+        trend_strength_weights=TrendStrengthWeights(
+            sar=0.40,      # SAR 중시 (안정성)
+            rsi=0.20,      # RSI
+            support=0.25,  # 지지선 중시 (리스크 관리)
+            volume=0.10,   # 거래량
+            candle=0.05,   # 양봉
+            min_score=0.70 # 높은 기준 (보수적)
+        )
     ),
     pyramiding=PyramidingParameters(
         enabled=False  # 보수적: 피라미딩 비활성화
@@ -298,7 +343,16 @@ AGGRESSIVE_STRATEGY = StrategyConfig(
     ),
     quality_filter=QualityFilterParameters(
         min_market_cap=50_000_000_000,   # 500억
-        min_trade_amount=100_000_000     # 1억 - 백테스트 AGGRESSIVE와 일치
+        min_trade_amount=100_000_000,    # 1억 - 백테스트 AGGRESSIVE와 일치
+        trend_strength_filter_enabled=True,
+        trend_strength_weights=TrendStrengthWeights(
+            sar=0.25,      # SAR (기본)
+            rsi=0.20,      # RSI (기본)
+            support=0.15,  # 지지선
+            volume=0.25,   # 거래량 중시 (모멘텀)
+            candle=0.15,   # 양봉 중시 (당일 강세)
+            min_score=0.50 # 낮은 기준 (공격적)
+        )
     ),
     pyramiding=PyramidingParameters(
         enabled=True,
@@ -312,7 +366,20 @@ BALANCED_STRATEGY = StrategyConfig(
     position_size_ratio=0.9,
     safety_cash_amount=1_000_000,
     technical_params=TechnicalParameters(
-        min_technical_score=0.55  # backtest_params와 일치시킴
+        min_technical_score=0.5  # backtest_params와 일치시킴
+    ),
+    quality_filter=QualityFilterParameters(
+        min_market_cap=50_000_000_000,      # 500억 (중간 수준)
+        min_trade_amount=100_000_000,       # 1억 (적당한 유동성)
+        trend_strength_filter_enabled=True,
+        trend_strength_weights=TrendStrengthWeights(
+            sar=0.35,      # SAR (중요)
+            rsi=0.25,      # RSI (중요)
+            support=0.20,  # 지지선 (보조)
+            volume=0.10,   # 거래량 (보조)
+            candle=0.10,   # 양봉 (보조)
+            min_score=0.60 # 균형잡힌 기준
+        )
     ),
     investment_amounts={
         '최고신뢰': 1_200_000,
@@ -324,7 +391,7 @@ BALANCED_STRATEGY = StrategyConfig(
         'min_close_days': 7,
         'ma_period': 20,
         'min_trade_amount': 100_000_000,
-        'min_technical_score': 0.55,
+        'min_technical_score': 0.5,
         'max_positions': 7
     }
 )
@@ -345,7 +412,15 @@ SMALL_CAPITAL_STRATEGY = StrategyConfig(
     quality_filter=QualityFilterParameters(
         min_market_cap=50_000_000_000,      # 500억 (소액이므로 시총 기준 완화)
         min_trade_amount=100_000_000,       # 1억 (유동성 있는 종목만)
-        trend_strength_filter_enabled=True
+        trend_strength_filter_enabled=True,
+        trend_strength_weights=TrendStrengthWeights(
+            sar=0.40,      # SAR 가중치 증가 (안정성)
+            rsi=0.30,      # RSI 가중치 증가 (타이밍)
+            support=0.15,  # 지지선
+            volume=0.10,   # 거래량
+            candle=0.05,   # 양봉 (덜 중요)
+            min_score=0.65 # 최소 점수 상향 (안정성)
+        )
     ),
     pyramiding=PyramidingParameters(
         enabled=True,                       # 피라미딩 활성화

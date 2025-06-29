@@ -98,6 +98,14 @@ class StrategyDataManager:
             'min_combined_score': 0.55,
             'debug_news': True,
             'trend_strength_filter_enabled': True,  # 추세 강도 필터 활성화
+            'trend_strength_weights': {            # 추세 강도 가중치
+                'sar': 0.35,
+                'rsi': 0.25,
+                'support': 0.20,
+                'volume': 0.10,
+                'candle': 0.10,
+                'min_score': 0.6
+            },
             # 투자 금액 설정 (50% 증액)
             'investment_amounts': {
                 '최고신뢰': 1_200_000,    # 120만원

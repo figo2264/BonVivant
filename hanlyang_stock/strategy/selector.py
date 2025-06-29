@@ -516,6 +516,58 @@ class StockSelector:
             print(f"⚠️ 지지선 확인 오류: {e}")
             return True  # 오류시 통과
     
+    def check_parabolic_sar_signal(self, market_data: pd.DataFrame, ticker: str) -> bool:
+        """
+        파라볼릭 SAR 매수 신호 확인
+        
+        Args:
+            market_data: 전체 시장 데이터
+            ticker: 종목 코드
+            
+        Returns:
+            bool: 파라볼릭 SAR 매수 신호 여부
+        """
+        try:
+            # 파라볼릭 SAR 계산을 위해 기술적 분석기 사용
+            from ..analysis.technical import get_technical_analyzer
+            
+            ticker_data = market_data[market_data['ticker'] == ticker].sort_values('timestamp').copy()
+            
+            if len(ticker_data) < 20:  # SAR 계산에 필요한 최소 데이터
+                return True  # 데이터 부족시 통과
+            
+            # 기술적 분석기를 통해 SAR 계산
+            analyzer = get_technical_analyzer()
+            ticker_data = analyzer._calculate_parabolic_sar(ticker_data)
+            
+            if ticker_data.empty:
+                return True  # 계산 실패시 통과
+            
+            latest = ticker_data.iloc[-1]
+            current_price = latest['close']
+            current_sar = latest.get('sar', current_price)
+            current_trend = latest.get('sar_trend', 1)
+            current_signal = latest.get('sar_signal', 0)
+            
+            # 조건:
+            # 1. 매수 신호가 발생했거나
+            # 2. 상승 추세이면서 가격이 SAR 위에 있는 경우
+            
+            if current_signal == 1:  # 매수 신호 발생
+                return True
+            elif current_trend == 1 and current_price > current_sar:  # 상승 추세 유지
+                # SAR과 가격의 거리가 적당한지 확인 (너무 멀면 추세 후반)
+                if current_sar > 0:
+                    distance_ratio = (current_price - current_sar) / current_sar
+                    return distance_ratio <= 0.1  # 10% 이내
+                return True
+            else:
+                return False  # 하락 추세 또는 매도 신호
+                
+        except Exception as e:
+            print(f"⚠️ 파라볼릭 SAR 신호 확인 오류: {e}")
+            return True  # 오류시 통과
+    
     def enhanced_stock_selection(self, current_date=None) -> List[Dict[str, Any]]:
         """
         기술적 분석 강화 종목 선정 - 백테스트 모드 지원
@@ -684,50 +736,82 @@ class StockSelector:
             
             if trend_strength_filter_enabled:
                 print("\n🔍 [추세 강도 필터] 적용 시작...")
-                print("   📋 필터 조건 (4개 중 3개 이상 충족시 통과):")
-                print("      - 양봉 크기 0.5% 이상")
-                print("      - 거래량 5일 평균 대비 1.2배 이상")
-                print("      - RSI 반등 신호 (30-50 구간에서 상승)")
-                print("      - 지지선 근처 (5% 이내)")
+                
+                # 가중치 설정 로드
+                if self.backtest_mode and hasattr(self.data_manager, '_temp_config'):
+                    # 백테스트 모드에서 가중치 설정
+                    trend_weights = temp_config.get('trend_strength_weights', {})
+                    weights = {
+                        'SAR': trend_weights.get('sar', 0.35),
+                        'RSI': trend_weights.get('rsi', 0.25),
+                        '지지선': trend_weights.get('support', 0.20),
+                        '거래량': trend_weights.get('volume', 0.10),
+                        '양봉': trend_weights.get('candle', 0.10)
+                    }
+                    min_trend_score = trend_weights.get('min_score', 0.6)
+                else:
+                    # 실시간 모드에서 strategy_data에서 가중치 로드
+                    strategy_data = self.data_manager.get_data()
+                    trend_weights = strategy_data.get('trend_strength_weights', {})
+                    weights = {
+                        'SAR': trend_weights.get('sar', 0.35),
+                        'RSI': trend_weights.get('rsi', 0.25),
+                        '지지선': trend_weights.get('support', 0.20),
+                        '거래량': trend_weights.get('volume', 0.10),
+                        '양봉': trend_weights.get('candle', 0.10)
+                    }
+                    min_trend_score = trend_weights.get('min_score', 0.6)
+                
+                print("   📋 가중치 기반 점수 시스템:")
+                print(f"      - 파라볼릭 SAR: {weights['SAR']*100:.0f}%")
+                print(f"      - RSI 반등: {weights['RSI']*100:.0f}%")
+                print(f"      - 지지선 근처: {weights['지지선']*100:.0f}%")
+                print(f"      - 거래량 급증: {weights['거래량']*100:.0f}%")
+                print(f"      - 양봉 크기: {weights['양봉']*100:.0f}%")
+                print(f"      - 최소 통과 점수: {min_trend_score:.2f}")
                 
                 strong_candidates = []
                 
                 for _, row in traditional_candidates.iterrows():
                     ticker = row['ticker']
                     
-                    # 각 조건 체크 및 점수 계산
-                    score = 0
+                    # 각 조건 체크 및 가중치 점수 계산
+                    weighted_score = 0
                     passed_conditions = []
                     
                     # 1. 양봉 품질 검증
                     if self.validate_bullish_candle(row):
-                        score += 1
+                        weighted_score += weights['양봉']
                         passed_conditions.append("양봉")
                     
                     # 2. 거래량 급증 확인
                     if self.check_volume_surge(market_data, ticker):
-                        score += 1
+                        weighted_score += weights['거래량']
                         passed_conditions.append("거래량")
                     
                     # 3. RSI 반등 신호
                     if self.check_rsi_reversal(market_data, ticker):
-                        score += 1
+                        weighted_score += weights['RSI']
                         passed_conditions.append("RSI")
                     
                     # 4. 지지선 근처 확인
                     if self.check_near_support(row, market_data, ticker):
-                        score += 1
+                        weighted_score += weights['지지선']
                         passed_conditions.append("지지선")
                     
-                    # 4개 중 3개 이상 통과시 선정
-                    if score >= 3:
-                        print(f"   ✅ {ticker}: 추세 강도 필터 통과 ({score}/4) - {', '.join(passed_conditions)}")
+                    # 5. 🆕 파라볼릭 SAR 매수 신호 확인
+                    if self.check_parabolic_sar_signal(market_data, ticker):
+                        weighted_score += weights['SAR']
+                        passed_conditions.append("SAR")
+                    
+                    # 가중치 점수가 최소 기준 이상일 때 선정
+                    if weighted_score >= min_trend_score:
+                        print(f"   ✅ {ticker}: 추세 강도 점수 {weighted_score:.2f} - {', '.join(passed_conditions)}")
                         strong_candidates.append(row)
-                    elif score == 2:
-                        pass
-                        # print(f"   ⚠️ {ticker}: \부분 통과 ({score}/4) - {', '.join(passed_conditions)}")
+                    elif weighted_score >= min_trend_score * 0.8:  # 근접한 경우 표시
+                        print(f"   ⚠️ {ticker}: 점수 {weighted_score:.2f} (근소하게 미달) - {', '.join(passed_conditions)}")
                     # else:
-                    #     print(f"   ❌ {ticker}: 필터 미달 ({score}/4)")
+                    #     print(f"   ❌ {ticker}: 점수 {weighted_score:.2f} 미달")
                 
                 if strong_candidates:
                     traditional_candidates = pd.DataFrame(strong_candidates)
@@ -768,41 +852,53 @@ class StockSelector:
                 # 기술적 분석 점수 계산
                 technical_score = get_technical_score(ticker)
                 
-                # 결합 점수: 기존 거래량 가중치 + 기술적 분석 보정
+                # 거래량 가중 점수: 거래대금에 기술적 분석 보정
                 # 거래량 순위를 위한 값 (정렬용)
                 technical_multiplier = 0.5 + technical_score  # 0.5 ~ 1.5 배수
-                combined_score_raw = row['trade_amount'] * technical_multiplier
+                volume_weighted_score_raw = row['trade_amount'] * technical_multiplier
                 
                 # 정규화된 점수 (0~1 사이, 표시용)
                 # 기술적 점수를 주로 사용하되, 거래량이 매우 높으면 약간의 보너스
                 volume_bonus = min(0.1, row['trade_amount'] / 10_000_000_000)  # 100억 거래대금당 0.01, 최대 0.1
                 normalized_score = min(1.0, technical_score + volume_bonus)
-                
+
                 enhanced_candidates.append({
                     'ticker': ticker,
                     'trade_amount': row['trade_amount'],
                     'technical_score': technical_score,
-                    'combined_score': combined_score_raw,  # 정렬용 (거래량 가중치 포함)
+                    'volume_weighted_score': volume_weighted_score_raw,  # 정렬용 (거래량 가중치 포함)
                     'normalized_score': normalized_score,  # 표시용 (0~1 사이)
                     'current_price': row['close']
                 })
             
-            # 기술적 분석 강화 점수로 정렬
-            enhanced_candidates.sort(key=lambda x: x['combined_score'], reverse=True)
+            # 거래량 가중 점수로 정렬
+            enhanced_candidates.sort(key=lambda x: x['volume_weighted_score'], reverse=True)
             
             # 기술적 점수가 기준 이상인 종목만 선정
             selected_candidates = []
             print(f"\n🔍 기술적 점수 필터링 (최소 점수: {min_technical_score})")
-            for candidate in enhanced_candidates[:10]:  # 상위 10개 확인
-                print(f"   - {candidate['ticker']}: 기술점수 {candidate['technical_score']:.3f}")
-                if candidate['technical_score'] >= min_technical_score and len(selected_candidates) < 5:  # 파라미터화된 기준
-                    selected_candidates.append(candidate)
-                    print(f"     ✅ 선정됨")
-                else:
-                    if len(selected_candidates) >= 5:
-                        print(f"     ❌ 최대 선정 수 초과")
+            
+            # 🔧 디버깅: 선정 과정 상세 추적
+            for i, candidate in enumerate(enhanced_candidates, 1):
+                tech_score = candidate['technical_score']
+                volume_weighted = candidate['volume_weighted_score']
+                trade_amount = candidate['trade_amount']
+
+                if tech_score >= min_technical_score:
+                    if len(selected_candidates) < 5:  # 최대 5개 선정
+                        selected_candidates.append(candidate)
+                        print(f"     ✅ 선정됨 (순위: {len(selected_candidates)})")
                     else:
-                        print(f"     ❌ 점수 미달")
+                        print(f"     ❌ 최대 선정 수 초과")
+                else:
+                    print(f"     ❌ 점수 미달")
+                
+                # 상위 20개까지만 출력 (로그 과부하 방지)
+                if i >= 20:
+                    remaining = len(enhanced_candidates) - 20
+                    if remaining > 0:
+                        print(f"   ... 외 {remaining}개 종목")
+                    break
             
             print(f"🎯 기술적 분석 최종 선정: {len(selected_candidates)}개 종목")
             
@@ -826,8 +922,8 @@ class StockSelector:
         """
         print("📊 기술적 분석 최종 종목 선정 시작...")
 
-        # 기술적 점수로 정렬 (이미 정렬되어 있지만 확실히 함)
-        entry_tickers.sort(key=lambda x: x['combined_score'], reverse=True)
+        # 거래량 가중 점수로 정렬 (이미 정렬되어 있지만 확실히 함)
+        entry_tickers.sort(key=lambda x: x['volume_weighted_score'], reverse=True)
         
         # 백테스트 모드에서 임시 파라미터 확인
         if self.backtest_mode and hasattr(self.data_manager, '_temp_backtest_params'):

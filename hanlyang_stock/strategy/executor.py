@@ -1116,7 +1116,7 @@ class BuyExecutor:
             # normalized_score가 있으면 사용, 없으면 combined_score 사용
             score = candidate.get('normalized_score', candidate.get('combined_score', 0))
             
-            # combined_score가 거래대금 기반인 경우 (매우 큰 값) technical_score 사용
+            # combined_score가 거래대금 기반인 경우 (volume_weighted_score) technical_score 사용
             if score > 1.0:
                 score = candidate.get('technical_score', 0.7)
             

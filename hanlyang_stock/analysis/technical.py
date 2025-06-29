@@ -20,7 +20,7 @@ class TechnicalAnalyzer:
     def get_technical_score(self, ticker: str, holding_days: int = 0, 
                           entry_price: Optional[float] = None) -> float:
         """
-        개선된 기술적 분석 점수 계산 - 다각도 평가 및 동적 조정
+        개선된 기술적 분석 점수 계산 - 다각도 평가 및 동적 조정 (파라볼릭 SAR 포함)
         
         Args:
             ticker: 종목 코드
@@ -38,19 +38,23 @@ class TechnicalAnalyzer:
             
             # 기술적 지표 생성
             data = create_technical_features(data)
+            
+            # 파라볼릭 SAR 계산 추가
+            data = self._calculate_parabolic_sar(data)
             latest = data.iloc[-1]
             
             # NaN 체크
             if pd.isna(latest.get('rsi_14', np.nan)):
                 return 0.5
             
-            # 가중치 설정
+            # 가중치 설정 (파라볼릭 SAR 추가)
             weights = {
-                'trend': 0.30,        # 추세 (30%)
-                'momentum': 0.25,     # 모멘텀 (25%)
-                'oversold': 0.20,     # 과매도 (20%)
-                'volume': 0.15,       # 거래량 (15%)
-                'volatility': 0.10    # 변동성 (10%)
+                'trend': 0.25,           # 추세 (25%)
+                'momentum': 0.20,        # 모멘텀 (20%)
+                'oversold': 0.20,        # 과매도 (20%)
+                'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
+                'volume': 0.10,          # 거래량 (10%)
+                'volatility': 0.05       # 변동성 (5%)
             }
             
             # 각 구성요소 점수 계산
@@ -58,6 +62,7 @@ class TechnicalAnalyzer:
                 'trend': self._calculate_trend_score(data, latest),
                 'momentum': self._calculate_momentum_score(data, latest),
                 'oversold': self._calculate_oversold_score(data, latest),
+                'parabolic_sar': self._calculate_parabolic_sar_score(data, latest),
                 'volume': self._calculate_volume_score(latest),
                 'volatility': self._calculate_volatility_score(latest)
             }
@@ -79,7 +84,8 @@ class TechnicalAnalyzer:
                 print(f"   📊 {ticker} 기술적 점수 상세:")
                 print(f"      추세: {components['trend']:.2f}, "
                       f"모멘텀: {components['momentum']:.2f}, "
-                      f"과매도: {components['oversold']:.2f}")
+                      f"과매도: {components['oversold']:.2f}, "
+                      f"SAR: {components['parabolic_sar']:.2f}")
                 if holding_days > 0:
                     print(f"      보유일수: {holding_days}일, 조정계수: {adjustment:.2f}")
                 print(f"      최종점수: {final_score:.3f}")
@@ -228,6 +234,198 @@ class TechnicalAnalyzer:
         else:
             return 0.1
     
+    def _calculate_parabolic_sar(self, data: pd.DataFrame) -> pd.DataFrame:
+        """
+        파라볼릭 SAR 계산
+        
+        Args:
+            data: OHLC 데이터
+            
+        Returns:
+            pd.DataFrame: SAR 컬럼이 추가된 데이터
+        """
+        try:
+            data = data.copy()
+            n = len(data)
+            
+            if n < 2:
+                data['sar'] = data['close']
+                data['sar_trend'] = 1  # 1: 상승, -1: 하락
+                return data
+            
+            # 파라볼릭 SAR 파라미터
+            initial_af = 0.02
+            step_af = 0.02
+            max_af = 0.20
+            
+            # 초기값 설정
+            sar = np.zeros(n)
+            trend = np.zeros(n, dtype=int)
+            af = np.zeros(n)
+            ep = np.zeros(n)  # Extreme Point
+            
+            # 첫 번째 값들 초기화
+            sar[0] = data['low'].iloc[0]
+            trend[0] = 1  # 상승 추세로 시작
+            af[0] = initial_af
+            ep[0] = data['high'].iloc[0]
+            
+            for i in range(1, n):
+                high = data['high'].iloc[i]
+                low = data['low'].iloc[i]
+                
+                # 이전 값들
+                prev_sar = sar[i-1]
+                prev_trend = trend[i-1]
+                prev_af = af[i-1]
+                prev_ep = ep[i-1]
+                
+                # SAR 계산
+                sar[i] = prev_sar + prev_af * (prev_ep - prev_sar)
+                
+                # 추세 판정
+                if prev_trend == 1:  # 상승 추세였던 경우
+                    # SAR이 현재 저가보다 높으면 추세 전환
+                    if sar[i] > low:
+                        trend[i] = -1  # 하락 추세로 전환
+                        sar[i] = prev_ep  # SAR을 이전 EP로 설정
+                        af[i] = initial_af
+                        ep[i] = low
+                    else:
+                        trend[i] = 1  # 상승 추세 유지
+                        # EP 업데이트 (새로운 고점)
+                        if high > prev_ep:
+                            ep[i] = high
+                            af[i] = min(prev_af + step_af, max_af)
+                        else:
+                            ep[i] = prev_ep
+                            af[i] = prev_af
+                        
+                        # SAR이 이전 이틀의 저가보다 높으면 조정
+                        if i >= 2:
+                            prev_low = min(data['low'].iloc[i-1], data['low'].iloc[i-2])
+                            sar[i] = min(sar[i], prev_low)
+                
+                else:  # 하락 추세였던 경우
+                    # SAR이 현재 고가보다 낮으면 추세 전환
+                    if sar[i] < high:
+                        trend[i] = 1  # 상승 추세로 전환
+                        sar[i] = prev_ep  # SAR을 이전 EP로 설정
+                        af[i] = initial_af
+                        ep[i] = high
+                    else:
+                        trend[i] = -1  # 하락 추세 유지
+                        # EP 업데이트 (새로운 저점)
+                        if low < prev_ep:
+                            ep[i] = low
+                            af[i] = min(prev_af + step_af, max_af)
+                        else:
+                            ep[i] = prev_ep
+                            af[i] = prev_af
+                        
+                        # SAR이 이전 이틀의 고가보다 낮으면 조정
+                        if i >= 2:
+                            prev_high = max(data['high'].iloc[i-1], data['high'].iloc[i-2])
+                            sar[i] = max(sar[i], prev_high)
+            
+            # 결과를 데이터프레임에 추가
+            data['sar'] = sar
+            data['sar_trend'] = trend
+            data['sar_signal'] = 0  # 신호 초기화
+            
+            # 신호 계산 (추세 전환점)
+            for i in range(1, n):
+                if trend[i] != trend[i-1]:
+                    if trend[i] == 1:
+                        data.loc[data.index[i], 'sar_signal'] = 1  # 매수 신호
+                    else:
+                        data.loc[data.index[i], 'sar_signal'] = -1  # 매도 신호
+            
+            return data
+            
+        except Exception as e:
+            print(f"⚠️ 파라볼릭 SAR 계산 오류: {e}")
+            # 오류 시 기본값으로 설정
+            data['sar'] = data['close']
+            data['sar_trend'] = 1
+            data['sar_signal'] = 0
+            return data
+    
+    def _calculate_parabolic_sar_score(self, data: pd.DataFrame, latest: pd.Series) -> float:
+        """
+        파라볼릭 SAR 점수 계산
+        
+        Args:
+            data: SAR이 계산된 데이터
+            latest: 최신 데이터
+            
+        Returns:
+            float: SAR 점수 (0.0~1.0)
+        """
+        try:
+            if len(data) < 3:
+                return 0.5
+            
+            current_price = latest['close']
+            current_sar = latest.get('sar', current_price)
+            current_trend = latest.get('sar_trend', 1)
+            current_signal = latest.get('sar_signal', 0)
+            
+            # 기본 점수
+            base_score = 0.5
+            
+            # 1. 현재 추세에 따른 점수 (50% 가중치)
+            if current_trend == 1:  # 상승 추세
+                if current_price > current_sar:
+                    trend_score = 0.8  # 매수 포지션 유리
+                else:
+                    trend_score = 0.3  # 추세 전환 신호
+            else:  # 하락 추세
+                if current_price < current_sar:
+                    trend_score = 0.2  # 매도 포지션
+                else:
+                    trend_score = 0.7  # 매수 기회 포착
+            
+            # 2. 신호 강도 (30% 가중치)
+            signal_score = 0.5
+            if current_signal == 1:  # 매수 신호
+                signal_score = 0.9
+                print(f"      🔵 파라볼릭 SAR 매수 신호 발생!")
+            elif current_signal == -1:  # 매도 신호
+                signal_score = 0.1
+                print(f"      🔴 파라볼릭 SAR 매도 신호 발생!")
+            
+            # 3. 추세 지속성 확인 (20% 가중치)
+            # 최근 3일간 추세 일관성
+            recent_trends = data['sar_trend'].tail(3).values
+            if len(recent_trends) >= 3:
+                trend_consistency = len(set(recent_trends)) == 1  # 모두 같은 추세
+                consistency_score = 0.7 if trend_consistency else 0.4
+            else:
+                consistency_score = 0.5
+            
+            # 가중 평균 계산
+            final_score = (trend_score * 0.5 + 
+                          signal_score * 0.3 + 
+                          consistency_score * 0.2)
+            
+            # SAR과 가격의 거리 고려 (보정)
+            if current_sar > 0:
+                price_sar_ratio = abs(current_price - current_sar) / current_sar
+                
+                # SAR과 가격이 너무 가까우면 신호 약화
+                if price_sar_ratio < 0.01:  # 1% 이내
+                    final_score *= 0.8
+                # SAR과 가격이 적당히 떨어져 있으면 신호 강화
+                elif 0.02 <= price_sar_ratio <= 0.05:  # 2-5% 구간
+                    final_score *= 1.1
+            
+            return max(0.0, min(1.0, final_score))
+            
+        except Exception as e:
+            print(f"⚠️ 파라볼릭 SAR 점수 계산 오류: {e}")
+            return 0.5
+    
     def _apply_holding_adjustment(self, base_score: float, holding_days: int,
                                  current_price: float, entry_price: Optional[float]) -> float:
         """보유 중인 종목에 대한 점수 조정"""
@@ -284,6 +482,9 @@ class TechnicalAnalyzer:
             
             # 기술적 지표 생성
             data = create_technical_features(data)
+            
+            # 파라볼릭 SAR 계산 추가
+            data = self._calculate_parabolic_sar(data)
             latest = data.iloc[-1]
             
             # 홀드 점수 계산 시작
@@ -337,7 +538,29 @@ class TechnicalAnalyzer:
                 hold_score += volume_boost
                 print(f"   📊 거래량 급증: +{volume_boost:.2f} (비율: {volume_ratio:.1f}배)")
             
-            # 5. 중기 추세 확인 (10% 가중치)
+            # 5. 파라볼릭 SAR 확인 (15% 가중치)
+            sar_trend = latest.get('sar_trend', 1)
+            sar_signal = latest.get('sar_signal', 0)
+            current_sar = latest.get('sar', latest['close'])
+            
+            if sar_signal == 1:  # 매수 신호 발생
+                sar_boost = 0.2
+                hold_score += sar_boost
+                print(f"   🔵 파라볼릭 SAR 매수 신호: +{sar_boost:.2f}")
+            elif sar_signal == -1:  # 매도 신호 발생
+                sar_penalty = -0.25
+                hold_score += sar_penalty
+                print(f"   🔴 파라볼릭 SAR 매도 신호: {sar_penalty:.2f}")
+            elif sar_trend == 1 and latest['close'] > current_sar:  # 상승 추세 유지
+                sar_boost = 0.1
+                hold_score += sar_boost
+                print(f"   📈 파라볼릭 SAR 상승 추세: +{sar_boost:.2f}")
+            elif sar_trend == -1:  # 하락 추세
+                sar_penalty = -0.1
+                hold_score += sar_penalty
+                print(f"   📉 파라볼릭 SAR 하락 추세: {sar_penalty:.2f}")
+            
+            # 6. 중기 추세 확인 (10% 가중치)
             price_ma_ratio_20 = latest.get('price_ma_ratio_20', 1.0)
             if price_ma_ratio_20 > 1.05:  # 20일 이평선 위 5% 이상
                 trend_boost = 0.1
