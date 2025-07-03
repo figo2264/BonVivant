@@ -57,6 +57,10 @@ class BacktestConfig:
     # 최적화된 파라미터 (선택적)
     optimized_params: Optional[OptimizedParameters] = None
     
+    # 추세 강도 필터 설정
+    trend_strength_filter_enabled: bool = True  # 추세 강도 필터 사용
+    trend_strength_weights: Dict[str, float] = None  # 추세 강도 가중치
+    
     def __post_init__(self):
         if self.investment_amounts is None:
             self.investment_amounts = {
@@ -64,6 +68,16 @@ class BacktestConfig:
                 '고신뢰': 900_000,        # 90만원 (점수 0.7-0.8) - 증가
                 '중신뢰': 600_000,        # 60만원 (점수 0.65-0.7) - 증가
                 '저신뢰': 400_000         # 40만원 (점수 0.65 미만) - 증가
+            }
+        
+        if self.trend_strength_weights is None:
+            self.trend_strength_weights = {
+                'sar': 0.35,      # 파라볼릭 SAR (가장 중요)
+                'rsi': 0.25,      # RSI 반등 신호
+                'support': 0.20,  # 지지선 근처
+                'volume': 0.10,   # 거래량 급증
+                'candle': 0.10,   # 양봉 크기
+                'min_score': 0.6  # 최소 통과 점수 (기본값)
             }
         
         # 최적화된 파라미터가 없으면 기본값으로 생성
@@ -121,6 +135,8 @@ class BacktestConfig:
             'min_close_days': self.min_close_days,
             'ma_period': self.ma_period,
             'min_trade_amount': self.min_trade_amount,
+            'trend_strength_filter_enabled': self.trend_strength_filter_enabled,
+            'trend_strength_weights': self.trend_strength_weights,
             'optimized_params': self.optimized_params.to_dict() if self.optimized_params else None
         }
     
@@ -163,6 +179,15 @@ CONSERVATIVE_CONFIG = BacktestConfig(
         '중신뢰': 400_000,
         '저신뢰': 300_000
     },
+    trend_strength_filter_enabled=True,
+    trend_strength_weights={
+        'sar': 0.40,      # SAR 중시 (안정성)
+        'rsi': 0.20,      # RSI
+        'support': 0.25,  # 지지선 중시 (리스크 관리)
+        'volume': 0.10,   # 거래량
+        'candle': 0.05,   # 양봉
+        'min_score': 0.70 # 높은 기준 (보수적)
+    },
     optimized_params=OptimizedParameters(
         min_close_days=7,
         ma_period=20,
@@ -189,6 +214,15 @@ AGGRESSIVE_CONFIG = BacktestConfig(
         '중신뢰': 800_000,
         '저신뢰': 600_000
     },
+    trend_strength_filter_enabled=True,
+    trend_strength_weights={
+        'sar': 0.25,      # SAR (기본)
+        'rsi': 0.20,      # RSI (기본)
+        'support': 0.15,  # 지지선
+        'volume': 0.25,   # 거래량 중시 (모멘텀)
+        'candle': 0.15,   # 양봉 중시 (당일 강세)
+        'min_score': 0.50 # 낮은 기준 (공격적)
+    },
     optimized_params=OptimizedParameters(
         min_close_days=7,
         ma_period=20,
@@ -204,6 +238,15 @@ BALANCED_CONFIG = BacktestConfig(
     position_size_ratio=0.9,             # 수익률 극대화
     safety_cash_amount=1_000_000,        # 안전 자금 감소
     min_technical_score=0.5,             # 기술점수 기준 완화
+    trend_strength_filter_enabled=True,
+    trend_strength_weights={
+        'sar': 0.35,      # SAR (중요)
+        'rsi': 0.25,      # RSI (중요)
+        'support': 0.20,  # 지지선 (보조)
+        'volume': 0.10,   # 거래량 (보조)
+        'candle': 0.10,   # 양봉 (보조)
+        'min_score': 0.50 # 균형잡힌 기준
+    },
     optimized_params=OptimizedParameters(
         max_positions=7,                 # OptimizedParameters도 7로
         min_technical_score=0.5          # 기술점수 기준도 동일하게
@@ -219,15 +262,24 @@ SMALL_CAPITAL_CONFIG = BacktestConfig(
     max_holding_days=5,
     position_size_ratio=0.8,             # 80% 투자 (20만원은 예비)
     safety_cash_amount=100_000,          # 안전 자금 10만원
-    min_technical_score=0.5,            # 중간 수준의 기술점수
+    min_technical_score=0.5,             # 중간 수준의 기술점수
     min_close_days=7,
     ma_period=20,
     min_trade_amount=100_000_000,        # 유동성 있는 종목만
     investment_amounts={
-        '최고신뢰': 220_000,             # 22만원 (점수 0.8+)
-        '고신뢰': 180_000,                # 18만원 (점수 0.7-0.8)
-        '중신뢰': 140_000,                # 14만원 (점수 0.65-0.7)
-        '저신뢰': 120_000                 # 12만원 (점수 0.65 미만)
+        '최고신뢰': 180_000,             # 18만원 (점수 0.8+)
+        '고신뢰': 160_000,               # 16만원 (점수 0.7-0.8)
+        '중신뢰': 120_000,               # 12만원 (점수 0.65-0.7)
+        '저신뢰': 100_000                # 10만원 (점수 0.65 미만)
+    },
+    trend_strength_filter_enabled=True,   # 추세 강도 필터 활성화
+    trend_strength_weights={
+        'sar': 0.35,      # SAR (중요)
+        'rsi': 0.25,      # RSI (중요)
+        'support': 0.20,  # 지지선 (보조)
+        'volume': 0.10,   # 거래량 (보조)
+        'candle': 0.10,   # 양봉 (보조)
+        'min_score': 0.50 # 소액 투자용 완화된 기준 (기존 0.60에서 하향)
     },
     optimized_params=OptimizedParameters(
         min_close_days=7,

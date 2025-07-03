@@ -5,6 +5,15 @@
 # 💵 기본값: 소액 투자 설정 (small_capital)
 # 환경변수 STRATEGY_PRESET으로 변경 가능: 'conservative', 'balanced', 'aggressive', 'small_capital'
 
+# 모의투자 (기본)
+# python strategy.py
+
+# 실거래 (환경변수)
+# TRADE_MODE=real python strategy.py
+
+# 실거래 (cron)
+# 30 8 * * 1-5 cd /path/to/project && TRADE_MODE=real python strategy.py
+
 import time
 from datetime import datetime
 import os
@@ -22,6 +31,23 @@ def main():
     
     # 환경변수로 프리셋 선택 가능 (기본값: small_capital)
     preset = os.environ.get('STRATEGY_PRESET', 'small_capital')
+    
+    # 현재 거래 모드 확인
+    trade_mode = os.environ.get('TRADE_MODE', 'simulation')
+    if trade_mode == 'simulation':
+        # config 파일에서 읽기 위해 임시로 get_config 호출
+        from hanlyang_stock.config.settings import get_config
+        config_obj = get_config()
+        trade_mode = config_obj.config.get('trade_mode', 'simulation')
+    
+    # 모드에 따른 경고 메시지
+    if trade_mode == 'real':
+        print("=" * 60)
+        print("🔴 주의: 실거래 모드로 실행됩니다!")
+        print("🔴 실제 자금이 거래됩니다. 신중히 확인하세요!")
+        print("=" * 60)
+    else:
+        print(f"🟢 모의투자 모드로 실행됩니다. (mode: {trade_mode})")
     
     # 프리셋별 메시지 출력
     preset_messages = {

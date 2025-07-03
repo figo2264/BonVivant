@@ -35,6 +35,8 @@ def run_simple_backtest():
         'investment_amounts': config.investment_amounts,
         'backtest_params': config.get_optimal_params(),
         'min_technical_score': config.min_technical_score,
+        'trend_strength_filter_enabled': config.trend_strength_filter_enabled,
+        'trend_strength_weights': config.trend_strength_weights,
         'preset': 'balanced'
     }
     
@@ -116,7 +118,8 @@ def run_profit_maximized_backtest():
         'stop_loss_rate': custom_config.stop_loss_rate,
         'investment_amounts': custom_config.investment_amounts,
         'backtest_params': custom_config.get_optimal_params(),
-        'min_technical_score': custom_config.min_technical_score
+        'min_technical_score': custom_config.min_technical_score,
+        'preset': 'balanced'
     }
     
     # 백테스트 엔진 생성 (설정 전달)
@@ -191,7 +194,8 @@ def run_custom_backtest():
         'stop_loss_rate': custom_config.stop_loss_rate,
         'investment_amounts': custom_config.investment_amounts,
         'backtest_params': custom_config.get_optimal_params(),
-        'min_technical_score': custom_config.min_technical_score
+        'min_technical_score': custom_config.min_technical_score,
+        'preset': 'balanced'
     }
     
     # 백테스트 엔진 생성 (설정 전달)
@@ -255,6 +259,8 @@ def run_period_comparison():
         'investment_amounts': config.investment_amounts,
         'backtest_params': config.get_optimal_params(),
         'min_technical_score': config.min_technical_score,
+        'trend_strength_filter_enabled': config.trend_strength_filter_enabled,
+        'trend_strength_weights': config.trend_strength_weights,
         'preset': 'balanced'
     }
     
@@ -387,7 +393,8 @@ def interactive_backtest():
             'stop_loss_rate': custom_config.stop_loss_rate,
             'investment_amounts': custom_config.investment_amounts,
             'backtest_params': custom_config.get_optimal_params(),
-            'min_technical_score': custom_config.min_technical_score
+            'min_technical_score': custom_config.min_technical_score,
+            'preset': 'balanced'
         }
         
         # 백테스트 실행
@@ -435,7 +442,11 @@ def run_small_capital_backtest():
         'investment_amounts': config.investment_amounts,
         'backtest_params': config.get_optimal_params(),
         'min_technical_score': config.min_technical_score,
-        'preset': 'small_capital'
+        'trend_strength_filter_enabled': config.trend_strength_filter_enabled,
+        'trend_strength_weights': config.trend_strength_weights,
+        'preset': 'small_capital',
+        # 소액 투자용 추가 설정
+        'min_market_cap': 50_000_000_000,  # 시가총액 500억원 이상 (200억에서 완화)
     }
     
     print("💵 소액 투자 설정 (backtest_settings.py 사용):")
@@ -445,6 +456,7 @@ def run_small_capital_backtest():
     print(f"  안전 자금: {config.safety_cash_amount:,}원")
     print(f"  손실 제한: {config.stop_loss_rate*100:.1f}%")
     print(f"  최소 기술점수: {config.min_technical_score}")
+    print(f"  최소 시가총액: 500억원 (소액 투자용 완화)")
     
     print("\n📊 백테스트 파라미터:")
     optimal_params = config.get_optimal_params()
@@ -568,7 +580,8 @@ def run_dynamic_capital_backtest():
             'stop_loss_rate': config.stop_loss_rate,
             'investment_amounts': config.investment_amounts,
             'backtest_params': config.get_optimal_params(),
-            'min_technical_score': config.min_technical_score
+            'min_technical_score': config.min_technical_score,
+            'preset': 'balanced'
         }
         
         # 백테스트 엔진 생성 (설정 전달)

@@ -21,11 +21,16 @@ except ImportError:
 class StockSelector:
     """종목 선정 클래스 - 기술적 분석 기반"""
     
-    def __init__(self, preset: str = None):
+    def __init__(self, preset: str = None, is_backtest: bool = False):
         self.data_fetcher = get_data_fetcher()
         # 프리셋이 지정되지 않으면 환경변수 확인
         if preset is None:
             preset = os.environ.get('STRATEGY_PRESET')
+        
+        # 백테스트 모드면 backtest_settings.py 사용하도록 설정
+        if is_backtest:
+            # config_type을 명시적으로 전달할 수 없으므로, 환경변수로 설정
+            os.environ['USE_BACKTEST_CONFIG'] = 'true'
         
         # 프리셋에 따른 data_manager 생성
         self.data_manager = get_data_manager(preset=preset)
@@ -181,15 +186,28 @@ class StockSelector:
                 try:
                     market_data = stock.get_market_ohlcv_by_ticker(date_str)
                     if not market_data.empty:
-                        # 거래량이 0인 종목만 필터링
-                        zero_volume = market_data[
-                            (market_data['거래량'] == 0) & 
-                            (market_data['종가'] > 0)
-                        ]
-                        zero_volume_tickers = zero_volume.index.tolist()
-                        if zero_volume_tickers:
-                            self._suspended_stocks_cache.update(zero_volume_tickers)
-                            print(f"      - 거래량 0인 종목: {len(zero_volume_tickers)}개")
+                        # 백테스트에서는 연속 3일 이상 거래량 0인 종목만 필터링 (일시적 거래정지 제외)
+                        # 최근 3일 데이터 확인
+                        suspended_candidates = set()
+                        for i in range(3):
+                            check_date = (datetime.strptime(date_str, '%Y%m%d') - timedelta(days=i)).strftime('%Y%m%d')
+                            try:
+                                day_data = stock.get_market_ohlcv_by_ticker(check_date)
+                                if not day_data.empty:
+                                    zero_volume = day_data[
+                                        (day_data['거래량'] == 0) & 
+                                        (day_data['종가'] > 0)
+                                    ]
+                                    if i == 0:
+                                        suspended_candidates = set(zero_volume.index)
+                                    else:
+                                        suspended_candidates &= set(zero_volume.index)
+                            except:
+                                break
+                        
+                        if suspended_candidates:
+                            self._suspended_stocks_cache.update(suspended_candidates)
+                            print(f"      - 연속 3일 거래량 0인 종목: {len(suspended_candidates)}개")
                 except Exception as e:
                     print(f"      ⚠️ 거래량 확인 실패: {e}")
             else:
@@ -1031,15 +1049,15 @@ class StockSelector:
 # 전역 스톡 셀렉터 (프리셋별 싱글톤 패턴)
 _selector_instances = {}
 
-def get_stock_selector(preset: str = None) -> StockSelector:
+def get_stock_selector(preset: str = None, is_backtest: bool = False) -> StockSelector:
     """스톡 셀렉터 인스턴스 반환 (프리셋별 싱글톤)"""
     global _selector_instances
     
     # 프리셋이 없으면 기본 인스턴스
-    key = preset or 'default'
+    key = f"{preset or 'default'}_{is_backtest}"
     
     if key not in _selector_instances:
-        _selector_instances[key] = StockSelector(preset=preset)
+        _selector_instances[key] = StockSelector(preset=preset, is_backtest=is_backtest)
     
     return _selector_instances[key]
 

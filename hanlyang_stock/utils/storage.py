@@ -26,7 +26,8 @@ class StrategyDataManager:
         """전략 데이터 로드 (technical_analysis 제외)"""
         # 설정 파일 사용 시 기본값 가져오기
         if self.use_config_file:
-            if self.config_type == 'backtest':
+            # 백테스트 모드 확인 (환경변수로)
+            if os.environ.get('USE_BACKTEST_CONFIG') == 'true' or self.config_type == 'backtest':
                 # 백테스트 설정 사용
                 config = get_backtest_config(self.preset)
                 base_data = config.to_dict()

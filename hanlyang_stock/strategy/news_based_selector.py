@@ -3,6 +3,7 @@
 News-based stock selection strategy
 """
 
+import os
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple, Optional
 from ..strategy.selector import get_stock_selector
@@ -15,12 +16,13 @@ import pandas as pd
 class NewsBasedSelector:
     """뉴스 감정 분석 기반 종목 선정 클래스"""
     
-    def __init__(self, debug: bool = False):
+    def __init__(self, debug: bool = False, preset: str = None):
         self.debug = debug
-        self.technical_selector = get_stock_selector()
+        self.preset = preset
+        self.technical_selector = get_stock_selector(preset=preset)
         self.news_analyzer = get_news_analyzer(debug=debug)
         self.data_fetcher = get_data_fetcher()
-        self.data_manager = get_data_manager()
+        self.data_manager = get_data_manager(preset=preset)
         
         # 최적 파라미터 (기본값)
         self.optimal_holding_days = 5
@@ -225,25 +227,33 @@ class NewsBasedSelector:
         return return_rate, trades
 
 
-# 전역 인스턴스
-_news_selector_instance = None
+# 전역 인스턴스 (preset별로 관리)
+_news_selector_instances = {}
 
-def get_news_based_selector(debug: bool = False) -> NewsBasedSelector:
-    """뉴스 기반 선택기 인스턴스 반환 (싱글톤)"""
-    global _news_selector_instance
-    if _news_selector_instance is None or _news_selector_instance.debug != debug:
-        _news_selector_instance = NewsBasedSelector(debug=debug)
-    return _news_selector_instance
+def get_news_based_selector(debug: bool = False, preset: str = None) -> NewsBasedSelector:
+    """뉴스 기반 선택기 인스턴스 반환 (preset별 싱글톤)"""
+    global _news_selector_instances
+    
+    # preset이 없으면 환경변수 확인
+    if preset is None:
+        preset = os.environ.get('STRATEGY_PRESET', 'balanced')
+    
+    key = f"{preset}_{debug}"
+    
+    if key not in _news_selector_instances:
+        _news_selector_instances[key] = NewsBasedSelector(debug=debug, preset=preset)
+    
+    return _news_selector_instances[key]
 
 
 # 편의 함수들
-def select_stocks_by_news(current_date: Optional[str] = None, debug: bool = False) -> List[Dict[str, Any]]:
+def select_stocks_by_news(current_date: Optional[str] = None, debug: bool = False, preset: str = None) -> List[Dict[str, Any]]:
     """뉴스 기반 종목 선정"""
-    selector = get_news_based_selector(debug)
+    selector = get_news_based_selector(debug, preset)
     return selector.select_stocks_by_news(current_date)
 
 
-def train_news_parameters(start_date: str, end_date: str, debug: bool = False) -> Tuple[int, float]:
+def train_news_parameters(start_date: str, end_date: str, debug: bool = False, preset: str = None) -> Tuple[int, float]:
     """뉴스 전략 파라미터 학습"""
-    selector = get_news_based_selector(debug)
+    selector = get_news_based_selector(debug, preset)
     return selector.train_optimal_parameters(start_date, end_date)

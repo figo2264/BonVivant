@@ -1,5 +1,21 @@
-hantu:
-  api_key: PS022fNplrh8IT9c8f8A9S1ONo21twXP9KZQ
-  secret_key: +opx5/WTr9S7U2JcLJoVA16O+iLiIcKGSxnS5gWkX5Od1mX7sJrnRiIJwU9PAeYwR8FAmUP00AJP8HSVmFi1Y/ZYC+5T5N2i+tscKA1JGGzg9+IwXxh5SsfHRpbZ3lS3hGnXuOd5dGenNvnz64K36BZCPsiJ6zt2N4l+uyD1rdzofQMoKRA=
-  account_id: 50139117
-  htsid: "@2550328"
+# 한국투자증권 API 설정
+# 실거래와 모의투자 계좌 정보를 모두 관리
+
+# 모의투자 계좌 (기존 정보)
+simulation:
+  api_key: PSov47AdxvP0NGBrc1dNQWtkfeLDylN08dQW
+  secret_key: YQZLaARPRtkLdsNQIi3/M/8AIBvs/1EYA7l8ZnjdVRIwnyAoJYIk1zZaGbMc4JB0HYqwl9g+4FidSnDaLGdctzZBKahhAiWyVLCWSWr6MeIlv1583L8JL23i6CDoMamSG7s2zCfeYoXz6vyYLOaATfxvfHTDSvP7oi2C7xWzI/YJldMqfVI=
+  account_id: 50139201
+  htsid: hlyang70
+
+# 실거래 계좌 (실제 계좌 정보로 업데이트 필요)
+real:
+  api_key: PSXwloBvhsFlNa4M88TuR4JtdBgAGfQUhu5G
+  secret_key: AfzHWQ/5WQCjg6Ohe879OpxjhnBSEZ62qnyMVbE3XkyS/V3flzmKkQhBvfUd1BYyYTNO6ccFhmxCtf/Ymfs+dJkcG6qONhGqZI2aiiTHfHpMM78NO+OQUy7Q2sOTCF0XWQgB40YqlPNRHK6exIxOvy56R0onpDZeSkoDpCVlUO1L9+M1s10=
+  account_id: 43069382
+  htsid: hlyang70
+
+# 거래 모드 설정
+# 'simulation' 또는 'real'
+# 환경변수 TRADE_MODE로 오버라이드 가능
+trade_mode: simulation

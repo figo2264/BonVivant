@@ -48,9 +48,9 @@ class BacktestEngine:
         
         # 설정에서 프리셋 확인 (환경변수 대신 config 사용)
         preset = self.config.get('preset', None)
-        self.stock_selector = get_stock_selector(preset=preset)
+        self.stock_selector = get_stock_selector(preset=preset, is_backtest=True)
         
-        self.news_selector = get_news_based_selector(debug=debug)
+        self.news_selector = get_news_based_selector(debug=debug, preset=preset)
         self.data_validator = get_data_validator()
         self.performance_analyzer = get_performance_analyzer()
 
@@ -545,9 +545,18 @@ class BacktestEngine:
         # 종목당 투자 금액 계산 (storage.py 대신 config 사용)
         position_size_ratio = self._get_config_value('position_size_ratio', 0.8)
         available_cash = self.portfolio.cash * position_size_ratio
-        # 피라미딩 고려해서 더 많은 슬롯으로 나눔
-        investment_per_stock = available_cash / max(available_slots + len(current_holdings), 1)
-
+        
+        # 소액 투자 특별 처리
+        initial_capital = self._get_config_value('initial_capital', 10_000_000)
+        if initial_capital <= 1_000_000:
+            # 소액 투자: 더 많은 자금을 활용하되 분산도 고려
+            base_investment = available_cash / max(available_slots, 3)  # 최소 3개로 분산
+        else:
+            # 일반 투자: 기존 로직
+            base_investment = available_cash / max(available_slots + len(current_holdings), 1)
+        
+        investment_per_stock = base_investment
+        
         print(f"   사용 가능 현금: {available_cash:,.0f}원")
         print(f"   종목당 기본 투자: {investment_per_stock:,.0f}원")
         print(f"   종목당 최대 포지션: {max_position_value:,.0f}원")
@@ -647,9 +656,13 @@ class BacktestEngine:
             safety_cash_amount = self._get_config_value('safety_cash_amount', 1_000_000)
             remaining_balance = self.portfolio.cash - total_invested - safety_cash_amount
             
-            # 최소 투자금액 설정에서 가져오기
+            # 최소 투자금액 설정에서 가져오기 - 가장 작은 값 사용
             investment_amounts = self._get_config_value('investment_amounts', {})
-            min_investment = min(investment_amounts.values()) if investment_amounts else 300_000
+            min_investment = min(investment_amounts.values()) if investment_amounts else 100_000
+            
+            # 소액 투자 백테스트인 경우 더 낮은 최소 투자금액 허용
+            if self._get_config_value('initial_capital', 10_000_000) <= 1_000_000:
+                min_investment = min(min_investment, 50_000)  # 5만원까지 허용
             
             if remaining_balance < investment_amount:
                 if remaining_balance < min_investment:  # 설정 기반 최소 투자금액
@@ -789,6 +802,10 @@ class BacktestEngine:
             delattr(self.stock_selector.data_manager, '_temp_backtest_params')
         if hasattr(self.stock_selector.data_manager, '_temp_config'):
             delattr(self.stock_selector.data_manager, '_temp_config')
+        
+        # 백테스트 환경변수 정리
+        if 'USE_BACKTEST_CONFIG' in os.environ:
+            del os.environ['USE_BACKTEST_CONFIG']
 
         # 성과 분석
         portfolio_history = self.portfolio.get_portfolio_history()

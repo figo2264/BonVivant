@@ -31,16 +31,26 @@ class Config:
     def _setup_hantustock(self):
         """HantuStock 객체 초기화"""
         try:
-            self.api_key = self.config['hantu']['api_key']
-            self.secret_key = self.config['hantu']['secret_key']
-            self.account_id = self.config['hantu']['account_id']
+            import os
+            # trade_mode 확인 (환경변수 우선)
+            trade_mode = os.environ.get('TRADE_MODE', self.config.get('trade_mode', 'simulation'))
+            
+            # 모드에 따른 계좌 정보 선택
+            if trade_mode not in ['simulation', 'real']:
+                print(f"⚠️ 알 수 없는 trade_mode: {trade_mode}. 기본값(simulation) 사용")
+                trade_mode = 'simulation'
+            
+            account_config = self.config[trade_mode]
             
             # HantuStock 객체 생성
             self.ht = HantuStock(
-                api_key=self.api_key, 
-                secret_key=self.secret_key, 
-                account_id=self.account_id
+                api_key=account_config['api_key'],
+                secret_key=account_config['secret_key'],
+                account_id=account_config['account_id'],
+                mode=trade_mode  # 모드 전달
             )
+            
+            print(f"✅ HantuStock 초기화 완료 (모드: {trade_mode})")
             
         except KeyError as e:
             raise KeyError(f"설정 파일에서 필수 키를 찾을 수 없습니다: {e}")
