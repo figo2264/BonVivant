@@ -61,6 +61,9 @@ class BacktestConfig:
     trend_strength_filter_enabled: bool = True  # 추세 강도 필터 사용
     trend_strength_weights: Dict[str, float] = None  # 추세 강도 가중치
     
+    # 기술적 점수 계산 가중치
+    technical_score_weights: Dict[str, float] = None  # 기술적 점수 가중치
+    
     def __post_init__(self):
         if self.investment_amounts is None:
             self.investment_amounts = {
@@ -78,6 +81,16 @@ class BacktestConfig:
                 'volume': 0.10,   # 거래량 급증
                 'candle': 0.10,   # 양봉 크기
                 'min_score': 0.6  # 최소 통과 점수 (기본값)
+            }
+        
+        if self.technical_score_weights is None:
+            self.technical_score_weights = {
+                'trend': 0.25,           # 추세 (25%)
+                'momentum': 0.20,        # 모멘텀 (20%)
+                'oversold': 0.20,        # 과매도 (20%)
+                'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
+                'volume': 0.10,          # 거래량 (10%)
+                'volatility': 0.05       # 변동성 (5%)
             }
         
         # 최적화된 파라미터가 없으면 기본값으로 생성
@@ -137,6 +150,7 @@ class BacktestConfig:
             'min_trade_amount': self.min_trade_amount,
             'trend_strength_filter_enabled': self.trend_strength_filter_enabled,
             'trend_strength_weights': self.trend_strength_weights,
+            'technical_score_weights': self.technical_score_weights,
             'optimized_params': self.optimized_params.to_dict() if self.optimized_params else None
         }
     
@@ -188,6 +202,14 @@ CONSERVATIVE_CONFIG = BacktestConfig(
         'candle': 0.05,   # 양봉
         'min_score': 0.70 # 높은 기준 (보수적)
     },
+    technical_score_weights={
+        'trend': 0.30,           # 추세 중시 (30%)
+        'momentum': 0.15,        # 모멘텀 축소 (15%)
+        'oversold': 0.15,        # 과매도 축소 (15%)
+        'parabolic_sar': 0.25,   # SAR 중시 (25%)
+        'volume': 0.10,          # 거래량 (10%)
+        'volatility': 0.05       # 변동성 (5%)
+    },
     optimized_params=OptimizedParameters(
         min_close_days=7,
         ma_period=20,
@@ -223,6 +245,14 @@ AGGRESSIVE_CONFIG = BacktestConfig(
         'candle': 0.15,   # 양봉 중시 (당일 강세)
         'min_score': 0.50 # 낮은 기준 (공격적)
     },
+    technical_score_weights={
+        'trend': 0.20,           # 추세 축소 (20%)
+        'momentum': 0.25,        # 모멘텀 중시 (25%)
+        'oversold': 0.25,        # 과매도 중시 (25%)
+        'parabolic_sar': 0.15,   # SAR 축소 (15%)
+        'volume': 0.10,          # 거래량 (10%)
+        'volatility': 0.05       # 변동성 (5%)
+    },
     optimized_params=OptimizedParameters(
         min_close_days=7,
         ma_period=20,
@@ -246,6 +276,14 @@ BALANCED_CONFIG = BacktestConfig(
         'volume': 0.10,   # 거래량 (보조)
         'candle': 0.10,   # 양봉 (보조)
         'min_score': 0.50 # 균형잡힌 기준
+    },
+    technical_score_weights={
+        'trend': 0.25,           # 추세 (25%)
+        'momentum': 0.20,        # 모멘텀 (20%)
+        'oversold': 0.20,        # 과매도 (20%)
+        'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
+        'volume': 0.10,          # 거래량 (10%)
+        'volatility': 0.05       # 변동성 (5%)
     },
     optimized_params=OptimizedParameters(
         max_positions=7,                 # OptimizedParameters도 7로
@@ -280,6 +318,14 @@ SMALL_CAPITAL_CONFIG = BacktestConfig(
         'volume': 0.10,   # 거래량 (보조)
         'candle': 0.10,   # 양봉 (보조)
         'min_score': 0.50 # 소액 투자용 완화된 기준 (기존 0.60에서 하향)
+    },
+    technical_score_weights={
+        'trend': 0.25,           # 추세 (25%)
+        'momentum': 0.20,        # 모멘텀 (20%)
+        'oversold': 0.20,        # 과매도 (20%)
+        'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
+        'volume': 0.10,          # 거래량 (10%)
+        'volatility': 0.05       # 변동성 (5%)
     },
     optimized_params=OptimizedParameters(
         min_close_days=7,

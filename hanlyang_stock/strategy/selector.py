@@ -867,8 +867,21 @@ class StockSelector:
                     print(f"   ❌ {ticker}: 데이터 검증 실패 - 스킵")
                     continue
                 
-                # 기술적 분석 점수 계산
-                technical_score = get_technical_score(ticker)
+                # 기술적 분석 점수 계산 (백테스트 설정 전달)
+                if self.backtest_mode and hasattr(self.data_manager, '_temp_config'):
+                    # 백테스트 모드에서 설정 전달
+                    from ..config.backtest_settings import BacktestConfig
+                    temp_config = self.data_manager._temp_config
+                    
+                    # BacktestConfig 객체 생성 (technical_score_weights 포함)
+                    config = BacktestConfig()
+                    if 'technical_score_weights' in temp_config:
+                        config.technical_score_weights = temp_config['technical_score_weights']
+                    
+                    technical_score = get_technical_score(ticker, config=config)
+                else:
+                    # 실시간 모드에서는 기본 설정 사용
+                    technical_score = get_technical_score(ticker)
                 
                 # 거래량 가중 점수: 거래대금에 기술적 분석 보정
                 # 거래량 순위를 위한 값 (정렬용)
@@ -907,9 +920,11 @@ class StockSelector:
                         selected_candidates.append(candidate)
                         print(f"     ✅ 선정됨 (순위: {len(selected_candidates)})")
                     else:
-                        print(f"     ❌ 최대 선정 수 초과")
+                        # print(f"     ❌ 최대 선정 수 초과")
+                        pass
                 else:
-                    print(f"     ❌ 점수 미달")
+                    # print(f"     ❌ 점수 미달")
+                    pass
                 
                 # 상위 20개까지만 출력 (로그 과부하 방지)
                 if i >= 20:

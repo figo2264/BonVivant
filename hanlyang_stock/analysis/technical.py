@@ -5,7 +5,7 @@ Enhanced with complete features from backtest_engine
 
 import pandas as pd
 import numpy as np
-from typing import Optional
+from typing import Optional, Any
 from ..data.fetcher import get_data_fetcher
 from ..data.preprocessor import create_technical_features
 from ..utils.data_validator import validate_ticker_data as validate_data
@@ -16,9 +16,19 @@ class TechnicalAnalyzer:
     
     def __init__(self):
         self.data_fetcher = get_data_fetcher()
+        
+        # 기본 가중치 설정 (설정에서 오버라이드 가능)
+        self.default_weights = {
+            'trend': 0.25,           # 추세 (25%)
+            'momentum': 0.20,        # 모멘텀 (20%)
+            'oversold': 0.20,        # 과매도 (20%)
+            'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
+            'volume': 0.10,          # 거래량 (10%)
+            'volatility': 0.05       # 변동성 (5%)
+        }
     
     def get_technical_score(self, ticker: str, holding_days: int = 0, 
-                          entry_price: Optional[float] = None) -> float:
+                          entry_price: Optional[float] = None, config: Any = None) -> float:
         """
         개선된 기술적 분석 점수 계산 - 다각도 평가 및 동적 조정 (파라볼릭 SAR 포함)
         
@@ -26,6 +36,7 @@ class TechnicalAnalyzer:
             ticker: 종목 코드
             holding_days: 현재 보유 일수 (0이면 미보유)
             entry_price: 매수 가격 (보유 중인 경우)
+            config: 백테스트/전략 설정 (가중치 포함)
             
         Returns:
             float: 기술적 분석 점수 (0.0 ~ 1.0)
@@ -47,15 +58,17 @@ class TechnicalAnalyzer:
             if pd.isna(latest.get('rsi_14', np.nan)):
                 return 0.5
             
-            # 가중치 설정 (파라볼릭 SAR 추가)
-            weights = {
-                'trend': 0.25,           # 추세 (25%)
-                'momentum': 0.20,        # 모멘텀 (20%)
-                'oversold': 0.20,        # 과매도 (20%)
-                'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
-                'volume': 0.10,          # 거래량 (10%)
-                'volatility': 0.05       # 변동성 (5%)
-            }
+            # 가중치 설정 (설정이 있으면 사용, 없으면 기본값)
+            weights = self.default_weights.copy()
+            
+            if config:
+                # BacktestConfig 또는 StrategyConfig에서 가중치 추출
+                if hasattr(config, 'technical_score_weights'):
+                    weights.update(config.technical_score_weights)
+                elif hasattr(config, 'to_dict'):
+                    config_dict = config.to_dict()
+                    if 'technical_score_weights' in config_dict:
+                        weights.update(config_dict['technical_score_weights'])
             
             # 각 구성요소 점수 계산
             components = {
@@ -668,10 +681,11 @@ def get_technical_analyzer() -> TechnicalAnalyzer:
     return _technical_analyzer_instance
 
 # 편의 함수들
-def get_technical_score(ticker: str, holding_days: int = 0, entry_price: Optional[float] = None) -> float:
+def get_technical_score(ticker: str, holding_days: int = 0, 
+                      entry_price: Optional[float] = None, config: Any = None) -> float:
     """기술적 분석 점수 계산"""
     analyzer = get_technical_analyzer()
-    return analyzer.get_technical_score(ticker, holding_days, entry_price)
+    return analyzer.get_technical_score(ticker, holding_days, entry_price, config)
 
 def get_technical_hold_signal(ticker: str, current_date=None) -> float:
     """기술적 홀드 시그널 계산"""

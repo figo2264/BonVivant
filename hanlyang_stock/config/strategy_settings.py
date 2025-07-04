@@ -8,6 +8,28 @@ from typing import Dict, Any, Optional
 
 
 @dataclass
+class TechnicalScoreWeights:
+    """기술적 점수 계산 가중치"""
+    trend: float = 0.25           # 추세 (25%)
+    momentum: float = 0.20        # 모멘텀 (20%)
+    oversold: float = 0.20        # 과매도 (20%)
+    parabolic_sar: float = 0.20   # 파라볼릭 SAR (20%)
+    volume: float = 0.10          # 거래량 (10%)
+    volatility: float = 0.05       # 변동성 (5%)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'trend': self.trend,
+            'momentum': self.momentum,
+            'oversold': self.oversold,
+            'parabolic_sar': self.parabolic_sar,
+            'volume': self.volume,
+            'volatility': self.volatility
+        }
+
+
+@dataclass
 class TechnicalParameters:
     """기술적 분석 파라미터"""
     min_close_days: int = 7              # 최저점 확인 기간
@@ -26,6 +48,28 @@ class TechnicalParameters:
             'rsi_hold_upper': self.rsi_hold_upper,
             'rsi_hold_lower': self.rsi_hold_lower,
             'volume_surge_threshold': self.volume_surge_threshold
+        }
+
+
+@dataclass
+class TechnicalScoreWeights:
+    """기술적 점수 계산 가중치"""
+    trend: float = 0.25           # 추세 (25%)
+    momentum: float = 0.20        # 모멘텀 (20%)
+    oversold: float = 0.20        # 과매도 (20%)
+    parabolic_sar: float = 0.20   # 파라볼릭 SAR (20%)
+    volume: float = 0.10          # 거래량 (10%)
+    volatility: float = 0.05       # 변동성 (5%)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'trend': self.trend,
+            'momentum': self.momentum,
+            'oversold': self.oversold,
+            'parabolic_sar': self.parabolic_sar,
+            'volume': self.volume,
+            'volatility': self.volatility
         }
 
 
@@ -52,6 +96,28 @@ class HybridStrategyParameters:
 
 
 @dataclass
+class TechnicalScoreWeights:
+    """기술적 점수 계산 가중치"""
+    trend: float = 0.25           # 추세 (25%)
+    momentum: float = 0.20        # 모멘텀 (20%)
+    oversold: float = 0.20        # 과매도 (20%)
+    parabolic_sar: float = 0.20   # 파라볼릭 SAR (20%)
+    volume: float = 0.10          # 거래량 (10%)
+    volatility: float = 0.05       # 변동성 (5%)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'trend': self.trend,
+            'momentum': self.momentum,
+            'oversold': self.oversold,
+            'parabolic_sar': self.parabolic_sar,
+            'volume': self.volume,
+            'volatility': self.volatility
+        }
+
+
+@dataclass
 class PyramidingParameters:
     """피라미딩 전략 파라미터"""
     enabled: bool = True
@@ -70,6 +136,28 @@ class PyramidingParameters:
             'investment_ratio': self.investment_ratio,
             'reset_threshold': self.reset_threshold,
             'max_resets': self.max_resets
+        }
+
+
+@dataclass
+class TechnicalScoreWeights:
+    """기술적 점수 계산 가중치"""
+    trend: float = 0.25           # 추세 (25%)
+    momentum: float = 0.20        # 모멘텀 (20%)
+    oversold: float = 0.20        # 과매도 (20%)
+    parabolic_sar: float = 0.20   # 파라볼릭 SAR (20%)
+    volume: float = 0.10          # 거래량 (10%)
+    volatility: float = 0.05       # 변동성 (5%)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'trend': self.trend,
+            'momentum': self.momentum,
+            'oversold': self.oversold,
+            'parabolic_sar': self.parabolic_sar,
+            'volume': self.volume,
+            'volatility': self.volatility
         }
 
 
@@ -96,6 +184,28 @@ class TrendStrengthWeights:
 
 
 @dataclass
+class TechnicalScoreWeights:
+    """기술적 점수 계산 가중치"""
+    trend: float = 0.25           # 추세 (25%)
+    momentum: float = 0.20        # 모멘텀 (20%)
+    oversold: float = 0.20        # 과매도 (20%)
+    parabolic_sar: float = 0.20   # 파라볼릭 SAR (20%)
+    volume: float = 0.10          # 거래량 (10%)
+    volatility: float = 0.05       # 변동성 (5%)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'trend': self.trend,
+            'momentum': self.momentum,
+            'oversold': self.oversold,
+            'parabolic_sar': self.parabolic_sar,
+            'volume': self.volume,
+            'volatility': self.volatility
+        }
+
+
+@dataclass
 class QualityFilterParameters:
     """품질 필터 파라미터"""
     enabled: bool = True
@@ -112,6 +222,28 @@ class QualityFilterParameters:
             'min_trade_amount': self.min_trade_amount,
             'trend_strength_filter_enabled': self.trend_strength_filter_enabled,
             'trend_strength_weights': self.trend_strength_weights.to_dict()
+        }
+
+
+@dataclass
+class TechnicalScoreWeights:
+    """기술적 점수 계산 가중치"""
+    trend: float = 0.25           # 추세 (25%)
+    momentum: float = 0.20        # 모멘텀 (20%)
+    oversold: float = 0.20        # 과매도 (20%)
+    parabolic_sar: float = 0.20   # 파라볼릭 SAR (20%)
+    volume: float = 0.10          # 거래량 (10%)
+    volatility: float = 0.05       # 변동성 (5%)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """딕셔너리로 변환"""
+        return {
+            'trend': self.trend,
+            'momentum': self.momentum,
+            'oversold': self.oversold,
+            'parabolic_sar': self.parabolic_sar,
+            'volume': self.volume,
+            'volatility': self.volatility
         }
 
 
@@ -167,6 +299,7 @@ class StrategyConfig:
     hybrid_strategy: HybridStrategyParameters = field(default_factory=HybridStrategyParameters)
     pyramiding: PyramidingParameters = field(default_factory=PyramidingParameters)
     quality_filter: QualityFilterParameters = field(default_factory=QualityFilterParameters)
+    technical_score_weights: TechnicalScoreWeights = field(default_factory=TechnicalScoreWeights)
     
     def to_dict(self) -> Dict[str, Any]:
         """설정을 딕셔너리로 변환 (storage.py 호환)"""
@@ -216,6 +349,9 @@ class StrategyConfig:
             'enhanced_min_trade_amount': self.quality_filter.min_trade_amount,
             'trend_strength_filter_enabled': self.quality_filter.trend_strength_filter_enabled,
             'trend_strength_weights': self.quality_filter.trend_strength_weights.to_dict(),
+            
+            # 기술적 점수 가중치
+            'technical_score_weights': self.technical_score_weights.to_dict(),
         }
     
     @classmethod
@@ -270,6 +406,17 @@ class StrategyConfig:
             trend_strength_weights=trend_strength_weights
         )
         
+        # 기술적 점수 가중치 추출
+        tech_score_weights_dict = config_dict.get('technical_score_weights', {})
+        technical_score_weights = TechnicalScoreWeights(
+            trend=tech_score_weights_dict.get('trend', 0.25),
+            momentum=tech_score_weights_dict.get('momentum', 0.20),
+            oversold=tech_score_weights_dict.get('oversold', 0.20),
+            parabolic_sar=tech_score_weights_dict.get('parabolic_sar', 0.20),
+            volume=tech_score_weights_dict.get('volume', 0.10),
+            volatility=tech_score_weights_dict.get('volatility', 0.05)
+        )
+        
         return cls(
             max_selections=config_dict.get('max_selections', 5),
             stop_loss_enabled=config_dict.get('stop_loss_enabled', True),
@@ -300,7 +447,8 @@ class StrategyConfig:
             technical_params=technical_params,
             hybrid_strategy=hybrid_strategy,
             pyramiding=pyramiding,
-            quality_filter=quality_filter
+            quality_filter=quality_filter,
+            technical_score_weights=technical_score_weights
         )
 
 
@@ -329,6 +477,14 @@ CONSERVATIVE_STRATEGY = StrategyConfig(
     ),
     pyramiding=PyramidingParameters(
         enabled=False  # 보수적: 피라미딩 비활성화
+    ),
+    technical_score_weights=TechnicalScoreWeights(
+        trend=0.30,           # 추세 중시 (30%)
+        momentum=0.15,        # 모멘텀 축소 (15%)
+        oversold=0.15,        # 과매도 축소 (15%)
+        parabolic_sar=0.25,   # SAR 중시 (25%)
+        volume=0.10,          # 거래량 (10%)
+        volatility=0.05       # 변동성 (5%)
     )
 )
 
@@ -357,6 +513,14 @@ AGGRESSIVE_STRATEGY = StrategyConfig(
     pyramiding=PyramidingParameters(
         enabled=True,
         max_position=0.5  # 공격적: 50%까지 허용
+    ),
+    technical_score_weights=TechnicalScoreWeights(
+        trend=0.20,           # 추세 축소 (20%)
+        momentum=0.25,        # 모멘텀 중시 (25%)
+        oversold=0.25,        # 과매도 중시 (25%)
+        parabolic_sar=0.15,   # SAR 축소 (15%)
+        volume=0.10,          # 거래량 (10%)
+        volatility=0.05       # 변동성 (5%)
     )
 )
 
@@ -393,7 +557,15 @@ BALANCED_STRATEGY = StrategyConfig(
         'min_trade_amount': 100_000_000,
         'min_technical_score': 0.5,
         'max_positions': 7
-    }
+    },
+    technical_score_weights=TechnicalScoreWeights(
+        trend=0.25,           # 추세 (25%)
+        momentum=0.20,        # 모멘텀 (20%)
+        oversold=0.20,        # 과매도 (20%)
+        parabolic_sar=0.20,   # 파라볼릭 SAR (20%)
+        volume=0.10,          # 거래량 (10%)
+        volatility=0.05       # 변동성 (5%)
+    )
 )
 
 # 소액 투자자를 위한 전략 설정 (100만원)
@@ -439,7 +611,15 @@ SMALL_CAPITAL_STRATEGY = StrategyConfig(
         'min_trade_amount': 100_000_000,    # 1억
         'min_technical_score': 0.5,         # backtest_settings와 일치시킴
         'max_positions': 5
-    }
+    },
+    technical_score_weights=TechnicalScoreWeights(
+        trend=0.25,           # 추세 (25%)
+        momentum=0.20,        # 모멘텀 (20%)
+        oversold=0.20,        # 과매도 (20%)
+        parabolic_sar=0.20,   # 파라볼릭 SAR (20%)
+        volume=0.10,          # 거래량 (10%)
+        volatility=0.05       # 변동성 (5%)
+    )
 )
 
 # 설정 프리셋

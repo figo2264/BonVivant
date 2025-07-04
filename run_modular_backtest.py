@@ -37,6 +37,7 @@ def run_simple_backtest():
         'min_technical_score': config.min_technical_score,
         'trend_strength_filter_enabled': config.trend_strength_filter_enabled,
         'trend_strength_weights': config.trend_strength_weights,
+        'technical_score_weights': config.technical_score_weights,  # 추가
         'preset': 'balanced'
     }
     
@@ -261,6 +262,7 @@ def run_period_comparison():
         'min_technical_score': config.min_technical_score,
         'trend_strength_filter_enabled': config.trend_strength_filter_enabled,
         'trend_strength_weights': config.trend_strength_weights,
+        'technical_score_weights': config.technical_score_weights,  # 추가
         'preset': 'balanced'
     }
     
@@ -444,6 +446,7 @@ def run_small_capital_backtest():
         'min_technical_score': config.min_technical_score,
         'trend_strength_filter_enabled': config.trend_strength_filter_enabled,
         'trend_strength_weights': config.trend_strength_weights,
+        'technical_score_weights': config.technical_score_weights,  # 추가
         'preset': 'small_capital',
         # 소액 투자용 추가 설정
         'min_market_cap': 50_000_000_000,  # 시가총액 500억원 이상 (200억에서 완화)
