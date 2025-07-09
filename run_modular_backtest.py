@@ -98,6 +98,24 @@ def run_profit_maximized_backtest():
             '고신뢰': 900_000,           # 90만원 (점수 0.7-0.8)
             '중신뢰': 600_000,           # 60만원 (점수 0.65-0.7)
             '저신뢰': 400_000            # 40만원 (점수 0.65 미만)
+        },
+        # 추세 강도 가중치 설정 (수익률 극대화용)
+        trend_strength_weights={
+            'sar': 0.35,  # SAR (중요)
+            'rsi': 0.25,  # RSI (중요)
+            'support': 0.20,  # 지지선 (보조)
+            'volume': 0.10,  # 거래량 (보조)
+            'candle': 0.10,  # 양봉 (보조)
+            'min_score': 0.50
+        },
+        # 기술적 점수 가중치 설정 (수익률 극대화용)
+        technical_score_weights={
+            'momentum': 0.30,  # 모멘텀 ↑ (20→30%)
+            'oversold': 0.30,  # 과매도 ↑ (20→25%)
+            'volume': 0.20,  # 거래량 ↑ (10→20%)
+            'parabolic_sar': 0.10,  # SAR ↓ (15→10%)
+            'trend': 0.10,  # 추세 ↓ (25→10%)
+            'volatility': 0.00  # 변동성 제거
         }
     )
     
@@ -120,7 +138,10 @@ def run_profit_maximized_backtest():
         'investment_amounts': custom_config.investment_amounts,
         'backtest_params': custom_config.get_optimal_params(),
         'min_technical_score': custom_config.min_technical_score,
-        'preset': 'balanced'
+        'trend_strength_filter_enabled': custom_config.trend_strength_filter_enabled,
+        'trend_strength_weights': custom_config.trend_strength_weights,
+        'technical_score_weights': custom_config.technical_score_weights,
+        'preset': 'profit_max'  # 수익률 극대화 프리셋 표시
     }
     
     # 백테스트 엔진 생성 (설정 전달)
@@ -196,7 +217,10 @@ def run_custom_backtest():
         'investment_amounts': custom_config.investment_amounts,
         'backtest_params': custom_config.get_optimal_params(),
         'min_technical_score': custom_config.min_technical_score,
-        'preset': 'balanced'
+        'trend_strength_filter_enabled': custom_config.trend_strength_filter_enabled,
+        'trend_strength_weights': custom_config.trend_strength_weights,
+        'technical_score_weights': custom_config.technical_score_weights,
+        'preset': 'profit_max'  # 수익률 극대화 프리셋 표시
     }
     
     # 백테스트 엔진 생성 (설정 전달)

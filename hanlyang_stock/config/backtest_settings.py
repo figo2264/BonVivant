@@ -312,6 +312,22 @@ SMALL_CAPITAL_CONFIG = BacktestConfig(
     },
     trend_strength_filter_enabled=True,   # 추세 강도 필터 활성화
     trend_strength_weights={
+        # 거래량 중시
+        # 'sar': 0.30,      # 35% → 30% (소폭 하향)
+        # 'rsi': 0.25,      # 25% 유지 (핵심 지표)
+        # 'support': 0.20,  # 20% 유지 (안정성)
+        # 'volume': 0.20,   # 10% → 20% (대폭 상향)
+        # 'candle': 0.05,   # 10% → 5% (하향)
+        # 'min_score': 0.50 # 유지
+
+        # 균형형
+        # 'sar': 0.30,      # 35% → 30%
+        # 'rsi': 0.30,      # 25% → 30% (상향)
+        # 'support': 0.20,  # 20% 유지
+        # 'volume': 0.15,   # 10% → 15% (상향)
+        # 'candle': 0.05,   # 10% → 5% (하향)
+        # 'min_score': 0.50 # 유지
+
         'sar': 0.35,      # SAR (중요)
         'rsi': 0.25,      # RSI (중요)
         'support': 0.20,  # 지지선 (보조)
@@ -320,12 +336,12 @@ SMALL_CAPITAL_CONFIG = BacktestConfig(
         'min_score': 0.50 # 소액 투자용 완화된 기준 (기존 0.60에서 하향)
     },
     technical_score_weights={
-        'trend': 0.25,           # 추세 (25%)
-        'momentum': 0.20,        # 모멘텀 (20%)
-        'oversold': 0.20,        # 과매도 (20%)
-        'parabolic_sar': 0.20,   # 파라볼릭 SAR (20%)
-        'volume': 0.10,          # 거래량 (10%)
-        'volatility': 0.05       # 변동성 (5%)
+        'momentum': 0.30,  # 모멘텀 ↑ (20→30%)
+        'oversold': 0.30,  # 과매도 ↑ (20→25%)
+        'volume': 0.20,  # 거래량 ↑ (10→20%)
+        'parabolic_sar': 0.10,  # SAR ↓ (15→10%)
+        'trend': 0.10,  # 추세 ↓ (25→10%)
+        'volatility': 0.00  # 변동성 제거
     },
     optimized_params=OptimizedParameters(
         min_close_days=7,
