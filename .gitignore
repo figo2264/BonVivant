@@ -52,6 +52,8 @@ env/
 *.pkl
 *.pickle
 
+!strategy_data.json
+
 # Logs
 *.log
 logs/

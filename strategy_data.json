@@ -1,0 +1,405 @@
+{
+  "holding_period": {
+    "091580": 0,
+    "400760": 0,
+    "148150": 0,
+    "219420": 1,
+    "008770": 0,
+    "200230": 0,
+    "095660": 0,
+    "362320": 0,
+    "002880": 3,
+    "259960": 1
+  },
+  "performance_log": [
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 0,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-06-30T08:30:03.898511"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 2,
+      "total_invested": 797720.0,
+      "current_holdings": 0,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-06-30T15:22:10.945180"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-01T08:30:04.320950"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 2,
+      "total_invested": 236300.0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-01T15:22:02.861963"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 4,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-02T08:30:05.176047"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "148150",
+      "quantity": 19,
+      "holding_days": 2,
+      "sell_date": "2025-07-02T12:11:34.451779",
+      "profit": -7030.0,
+      "profit_rate": -6.035889070146819,
+      "buy_price": 6130.0,
+      "buy_date": "2025-07-01T15:22:01.836363",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-02T12:11:35.507700"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "219420",
+      "quantity": 23,
+      "holding_days": 2,
+      "sell_date": "2025-07-02T12:11:35.104660",
+      "profit": -3910.0,
+      "profit_rate": -3.262955854126679,
+      "buy_price": 5210.0,
+      "buy_date": "2025-07-01T15:22:01.155274",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-02T12:11:35.507714"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 2,
+      "sell_profit": -10940.0,
+      "current_holdings": 4,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-02T12:11:36.009739"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "400760",
+      "quantity": 112,
+      "holding_days": 4,
+      "sell_date": "2025-07-02T12:13:58.222283",
+      "profit": -1680.0,
+      "profit_rate": -0.42134831460674155,
+      "buy_price": 3560.0,
+      "buy_date": "2025-06-30T15:22:09.150193",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-02T12:13:58.630186"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 1,
+      "sell_profit": -1680.0,
+      "current_holdings": 3,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-02T12:13:59.124304"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 1,
+      "total_invested": 352100.0,
+      "current_holdings": 1,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-02T15:21:54.038882"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "091580",
+      "quantity": 50,
+      "holding_days": 5,
+      "sell_date": "2025-07-03T08:30:06.603929",
+      "profit": 1000.0,
+      "profit_rate": 0.2506265664160401,
+      "buy_price": 7980.0,
+      "buy_date": "2025-06-30T15:22:09.800228",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-03T08:30:07.086098"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 1,
+      "sell_profit": 1000.0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-03T08:30:07.650148"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 1,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-04T08:30:04.922664"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 1,
+      "total_invested": 395280.0,
+      "current_holdings": 1,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-04T15:21:37.183910"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-07T08:30:04.130246"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 2,
+      "total_invested": 783300.0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-07T15:21:37.729615"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "008770",
+      "quantity": 7,
+      "holding_days": 4,
+      "sell_date": "2025-07-08T08:30:04.851911",
+      "profit": 3500.0,
+      "profit_rate": 0.9940357852882704,
+      "buy_price": 50300.0,
+      "buy_date": "2025-07-02T15:21:53.144089",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-08T08:30:05.404481"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 1,
+      "sell_profit": 3500.0,
+      "current_holdings": 4,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-08T08:30:05.894695"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 3,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-09T08:30:04.391942"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 1,
+      "total_invested": 399286.0,
+      "current_holdings": 3,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-09T15:26:22.126139"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 4,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-10T08:30:06.802899"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "095660",
+      "quantity": 16,
+      "holding_days": 4,
+      "sell_date": "2025-07-11T08:30:05.051639",
+      "profit": 6400.0,
+      "profit_rate": 1.6666666666666667,
+      "buy_price": 24000.0,
+      "buy_date": "2025-07-07T15:21:36.751514",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-11T08:30:07.079528"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "200230",
+      "quantity": 72,
+      "holding_days": 5,
+      "sell_date": "2025-07-11T08:30:06.087368",
+      "profit": 8640.0,
+      "profit_rate": 2.185792349726776,
+      "buy_price": 5490.0,
+      "buy_date": "2025-07-04T15:21:36.138454",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-11T08:30:07.079553"
+    },
+    {
+      "type": "sell_execution",
+      "ticker": "362320",
+      "quantity": 66,
+      "holding_days": 4,
+      "sell_date": "2025-07-11T08:30:06.684982",
+      "profit": 4620.0,
+      "profit_rate": 1.1570247933884297,
+      "buy_price": 6050.0,
+      "buy_date": "2025-07-07T15:21:36.157294",
+      "confidence_level": "저신뢰",
+      "timestamp": "2025-07-11T08:30:07.079557"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 3,
+      "sell_profit": 19660.0,
+      "current_holdings": 4,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-11T08:30:07.567931"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 1,
+      "total_invested": 353500.0,
+      "current_holdings": 1,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-11T15:21:38.070386"
+    },
+    {
+      "strategy_type": "sell_only",
+      "sold_count": 0,
+      "sell_profit": 0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "stop_loss_enabled": true,
+      "timestamp": "2025-07-14T08:30:04.576479"
+    },
+    {
+      "strategy_type": "buy_only",
+      "bought_count": 1,
+      "total_invested": 119438.0,
+      "current_holdings": 2,
+      "enhanced_analysis_enabled": true,
+      "ai_confidence_strategy": true,
+      "data_validation_enhanced": true,
+      "hybrid_strategy_enabled": true,
+      "timestamp": "2025-07-14T15:21:54.149801"
+    }
+  ],
+  "purchase_info": {
+    "002880": {
+      "buy_price": 1103.0,
+      "quantity": 362,
+      "investment": 399286.0,
+      "buy_date": "2025-07-09T15:26:21.241931",
+      "confidence_level": "저신뢰",
+      "reset_count": 0,
+      "hybrid_score": 0.5927333744285624,
+      "ai_score": 0.5927333744285624,
+      "is_hybrid": true,
+      "technical_score": 0.5896191063265178,
+      "news_score": 0.6,
+      "news_sentiment": "긍정",
+      "news_prob_1": 0.65,
+      "news_prob_5": 0.6,
+      "news_prob_10": 0.55,
+      "news_signal": {
+        "holding_days": 5,
+        "predictions": {
+          "1d": 0.65,
+          "5d": 0.6,
+          "10d": 0.55,
+          "20d": 0.52
+        }
+      }
+    },
+    "259960": {
+      "buy_price": 353500.0,
+      "quantity": 1,
+      "investment": 353500.0,
+      "buy_date": "2025-07-11T15:21:36.302077",
+      "confidence_level": "저신뢰",
+      "reset_count": 0,
+      "hybrid_score": 0.5619506605062191,
+      "ai_score": 0.5619506605062191,
+      "is_hybrid": true,
+      "technical_score": 0.5456438007231702,
+      "news_score": 0.6,
+      "news_sentiment": "긍정",
+      "news_prob_1": 0.55,
+      "news_prob_5": 0.6,
+      "news_prob_10": 0.65,
+      "news_signal": {
+        "holding_days": 5,
+        "predictions": {
+          "1d": 0.55,
+          "5d": 0.6,
+          "10d": 0.65,
+          "20d": 0.63
+        }
+      }
+    },
+    "056700": {
+      "buy_price": 1958.0,
+      "quantity": 61,
+      "investment": 119438.0,
+      "buy_date": "2025-07-14T15:21:53.144982",
+      "confidence_level": "저신뢰",
+      "reset_count": 0,
+      "hybrid_score": 0.6389453412559759,
+      "ai_score": 0.6389453412559759,
+      "is_hybrid": true,
+      "technical_score": 0.6127790589371085,
+      "news_score": 0.7,
+      "news_sentiment": "긍정",
+      "news_prob_1": 0.75,
+      "news_prob_5": 0.7,
+      "news_prob_10": 0.65,
+      "news_signal": {
+        "holding_days": 5,
+        "predictions": {
+          "1d": 0.75,
+          "5d": 0.7,
+          "10d": 0.65,
+          "20d": 0.6
+        }
+      }
+    }
+  }
+}
