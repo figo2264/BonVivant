@@ -23,6 +23,10 @@ from .news_crawler_base import NewsCrawlerBase, NewsItem
 class NaverFinanceCrawler(NewsCrawlerBase):
     """네이버 증권 뉴스 크롤러"""
     
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._temp_dir = None
+    
     def _get_quality_sources(self) -> List[str]:
         """경제 전문 매체 리스트"""
         return [
@@ -81,16 +85,13 @@ class NaverFinanceCrawler(NewsCrawlerBase):
         finally:
             if driver:
                 try:
+                    # Chrome 종료
                     driver.quit()
+                    
                     # Chrome user-data-dir 임시 디렉토리 정리
-                    import shutil
-                    user_data_dir = None
-                    for arg in driver.options.arguments:
-                        if arg.startswith('--user-data-dir='):
-                            user_data_dir = arg.split('=')[1]
-                            break
-                    if user_data_dir and os.path.exists(user_data_dir):
-                        shutil.rmtree(user_data_dir, ignore_errors=True)
+                    # chrome_options에서 user-data-dir 찾기
+                    if hasattr(self, '_temp_dir') and os.path.exists(self._temp_dir):
+                        shutil.rmtree(self._temp_dir, ignore_errors=True)
                 except Exception as e:
                     print(f"⚠️ 드라이버 종료 중 오류: {e}")
     
@@ -109,8 +110,8 @@ class NaverFinanceCrawler(NewsCrawlerBase):
         chrome_options.add_argument('user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
         
         # 고유한 user-data-dir 설정으로 세션 충돌 방지
-        temp_dir = tempfile.mkdtemp()
-        chrome_options.add_argument(f'--user-data-dir={temp_dir}')
+        self._temp_dir = tempfile.mkdtemp()
+        chrome_options.add_argument(f'--user-data-dir={self._temp_dir}')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         
         # 이미지 로딩 비활성화 (속도 향상)
