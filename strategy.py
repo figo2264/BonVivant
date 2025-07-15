@@ -117,6 +117,11 @@ def main():
     
     # 전략의 시간을 체크할 while문
     executed_date = None  # 실행 완료된 날짜 저장
+    
+    print(f"\n⏰ 현재 시간: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("📅 실행 예정 시간:")
+    print("   - 매도: 08:30")
+    print("   - 매수: 15:20")
 
     while True:
         current_time = datetime.now()
@@ -128,8 +133,8 @@ def main():
         else:
             executed_today = True
 
-        # 8시 30분~32분 - 매도 전용 실행 (여유시간 2분)
-        if current_time.hour == 8 and 30 <= current_time.minute <= 32 and not executed_today:
+        # 8시 30분 - 매도 전용 실행 (정확히 1분만)
+        if current_time.hour == 8 and current_time.minute == 30 and not executed_today:
         # if True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
                 print(f"🌅 아침 매도 전략 실행 시작! (프리셋: {preset})")
@@ -155,8 +160,8 @@ def main():
                 executed_date = current_date  # 오류가 발생해도 실행 완료로 표시
                 break
 
-        # 15시 20분~22분 - 매수 전용 실행 (여유시간 2분)
-        elif current_time.hour == 15 and 20 <= current_time.minute <= 22 and not executed_today:
+        # 15시 20분 - 매수 전용 실행 (정확히 1분만)
+        elif current_time.hour == 15 and current_time.minute == 20 and not executed_today:
         # elif True:  # 테스트용 (주석 해제하여 즉시 실행)
             try:
                 print(f"🚀 오후 매수 전략 실행 시작! (프리셋: {preset})")
@@ -197,6 +202,12 @@ def main():
 
         # 루프 돌때마다 1초씩 쉬어줌
         time.sleep(1)
+        
+        # 10초마다 현재 시간 출력 (디버깅용)
+        if current_time.second % 10 == 0:
+            print(f"\r⏰ 대기 중... {current_time.strftime('%H:%M:%S')}", end='', flush=True)
+    
+    print("\n✅ 전략 실행이 완료되어 프로그램을 종료합니다.")
 
 
 if __name__ == "__main__":
