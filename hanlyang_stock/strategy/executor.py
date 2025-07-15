@@ -623,6 +623,10 @@ class BuyExecutor:
                 # 뉴스 수집 및 분석
                 news_list = self.news_analyzer.fetch_ticker_news(ticker, company_name, current_date)
                 
+                # 다음 종목 크롤링 전 잠시 대기 (Chrome 정리 시간)
+                import time
+                time.sleep(1)  # 1초 대기
+                
                 # 기술적 분석 점수 가져오기 (보유 기간과 진입 가격 고려)
                 from ..analysis.technical import get_technical_score, get_technical_analyzer
                 

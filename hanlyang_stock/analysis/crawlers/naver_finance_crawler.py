@@ -87,12 +87,21 @@ class NaverFinanceCrawler(NewsCrawlerBase):
                     # Chrome 종료
                     driver.quit()
                     
+                    # 드라이버 프로세스가 완전히 종료될 때까지 대기
+                    import time
+                    time.sleep(0.5)
+                    
                     # Chrome user-data-dir 임시 디렉토리 정리
-                    # chrome_options에서 user-data-dir 찾기
-                    if hasattr(self, '_temp_dir') and os.path.exists(self._temp_dir):
-                        shutil.rmtree(self._temp_dir, ignore_errors=True)
+                    if hasattr(self, '_temp_dir') and self._temp_dir and os.path.exists(self._temp_dir):
+                        try:
+                            shutil.rmtree(self._temp_dir, ignore_errors=True)
+                        except:
+                            pass  # 디렉토리 삭제 실패는 무시
+                        finally:
+                            self._temp_dir = None  # 항상 초기화
                 except Exception as e:
                     print(f"⚠️ 드라이버 종료 중 오류: {e}")
+                    self._temp_dir = None  # 오류 시에도 초기화
     
     def _setup_driver(self) -> webdriver.Chrome:
         """Selenium 드라이버 설정"""
