@@ -11,7 +11,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
-import time
 import tempfile
 import os
 import shutil
@@ -97,8 +96,6 @@ class NaverFinanceCrawler(NewsCrawlerBase):
     
     def _setup_driver(self) -> webdriver.Chrome:
         """Selenium 드라이버 설정"""
-        import tempfile
-        import os
         
         chrome_options = webdriver.ChromeOptions()
         if not self.debug:
