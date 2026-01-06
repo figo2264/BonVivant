@@ -2,9 +2,14 @@
 Configuration management for Hanlyang Stock Strategy
 """
 
+import os
 import yaml
 import warnings
+from dotenv import load_dotenv
 from HantuStock import HantuStock
+
+# .env 파일 로드
+load_dotenv()
 
 # 경고 메시지 무시
 warnings.filterwarnings('ignore')
@@ -31,7 +36,6 @@ class Config:
     def _setup_hantustock(self):
         """HantuStock 객체 초기화"""
         try:
-            import os
             # trade_mode 확인 (환경변수 우선)
             trade_mode = os.environ.get('TRADE_MODE', self.config.get('trade_mode', 'simulation'))
             
@@ -59,10 +63,14 @@ class Config:
     
     def _setup_slack(self):
         """슬랙 설정"""
-        # 슬랙 설정 (하드코딩된 값들)
-        self.SLACK_API_TOKEN = "SLACK_TOKEN_REMOVED"
-        self.HANLYANG_CHANNEL_ID = "C090JHC30CU"
-        
+        # 슬랙 설정 (환경변수에서 로드)
+        self.SLACK_API_TOKEN = os.environ.get('SLACK_API_TOKEN')
+        self.HANLYANG_CHANNEL_ID = os.environ.get('SLACK_CHANNEL_ID')
+
+        if not self.SLACK_API_TOKEN:
+            print("⚠️ SLACK_API_TOKEN 환경변수가 설정되지 않았습니다.")
+            return
+
         try:
             # 슬랙 활성화
             self.ht.activate_slack(self.SLACK_API_TOKEN)
