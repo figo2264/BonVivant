@@ -187,7 +187,7 @@ class NewsAnalyzer:
                 print(f"  [DEBUG] Claude API 호출 시작...")
             
             response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model=os.getenv('CLAUDE_MODEL', 'claude-sonnet-4-5-20250929'),
                 max_tokens=500,
                 temperature=0.2,
                 messages=[
